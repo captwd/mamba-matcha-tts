@@ -3,36 +3,41 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="color-scheme" content="light only">
 <title>Matcha-TTS 复现与改进 · Demo</title>
 <style>
-  /* ========== 全局：仿 Matcha-TTS 官方 demo 的简约学术风 ========== */
+  /* ========== 全局：浅色学术风，强制 light，避免被浏览器自动深色化 ========== */
   :root {
-    --green: #1e7a55;        /* 抹茶绿主色 */
+    color-scheme: light;
+    --green: #1e7a55;
     --green-dark: #14573c;
-    --green-light: #e8f4ee;  /* 表格浅色行 */
-    --ink: #222;
-    --muted: #666;
-    --line: #e3e8e5;
+    --green-light: #eaf4ef;
+    --ink: #1c1c1c;
+    --body: #333;
+    --muted: #4b5563;
+    --line: #d5ddd9;
     --maxw: 1080px;
   }
   * { box-sizing: border-box; }
+  html, body { background: #fff; }
   body {
-    margin: 0; color: var(--ink);
+    margin: 0; color: var(--body);
     font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", system-ui, sans-serif;
-    line-height: 1.65; background: #fff;
+    line-height: 1.7;
   }
   .wrap { max-width: var(--maxw); margin: 0 auto; padding: 0 24px 80px; }
 
   header { text-align: center; padding: 56px 0 8px; }
-  header h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: .5px; }
+  header h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: .5px; color: var(--ink); }
   header h1 .accent { color: var(--green); }
   header .sub { color: var(--muted); font-size: 15px; }
   header .links { margin-top: 10px; font-size: 14px; }
   header .links a { color: var(--green); text-decoration: none; margin: 0 10px; }
   header .links a:hover { text-decoration: underline; }
 
-  h2 { font-size: 22px; margin: 56px 0 14px; padding-bottom: 8px; border-bottom: 2px solid var(--green); }
+  h2 { font-size: 22px; margin: 56px 0 14px; padding-bottom: 8px; border-bottom: 2px solid var(--green); color: var(--ink); }
   h2 .en { color: var(--muted); font-weight: 400; font-size: 15px; margin-left: 10px; }
+  h3 { color: var(--ink); }
 
   /* ---------- 架构图 ---------- */
   .pipeline { display: flex; flex-wrap: wrap; align-items: stretch; gap: 0; margin: 18px 0 6px; }
@@ -41,35 +46,35 @@
     background: var(--green-light); min-width: 108px; text-align: center;
   }
   .pnode b { display: block; font-size: 14px; color: var(--green-dark); }
-  .pnode span { font-size: 12px; color: var(--muted); }
+  .pnode span { font-size: 12px; color: #3f5a4d; }
   .pnode.hl { background: var(--green); }
   .pnode.hl b, .pnode.hl span { color: #fff; }
   .parrow { display: flex; align-items: center; padding: 0 6px; color: var(--green); font-size: 18px; }
-  .pipeline-note { font-size: 13px; color: var(--muted); margin-top: 10px; }
+  .pipeline-note { font-size: 13.5px; color: var(--muted); margin-top: 10px; }
   .specs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 14px; }
-  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; font-size: 13px; color: var(--muted); background: #fafbfa; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 3px 12px; font-size: 13px; color: var(--muted); background: #f7faf8; }
   .chip b { color: var(--ink); font-weight: 600; }
 
   /* ---------- 工作内容卡片 ---------- */
   .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; }
-  .card { border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; background: #fcfdfc; }
+  .card { border: 1px solid var(--line); border-radius: 10px; padding: 16px 18px; background: #f9fbfa; }
   .card h3 { margin: 0 0 8px; font-size: 15px; color: var(--green-dark); }
-  .card p { margin: 0; font-size: 13.5px; color: #444; }
+  .card p { margin: 0; font-size: 13.5px; color: #3a4249; }
 
   /* ---------- 试听表格 ---------- */
   .transcription { margin: 14px 0 12px; font-size: 15px; }
   .transcription .label { color: var(--muted); }
   .transcription .text { font-style: italic; min-height: 24px; }
-  .transcription .tip { font-size: 12px; color: #999; margin-left: 8px; }
+  .transcription .tip { font-size: 12px; color: var(--muted); margin-left: 8px; }
 
   table.listen { border-collapse: collapse; width: 100%; font-size: 14px; }
   table.listen th, table.listen td { border: 1px solid var(--line); text-align: center; padding: 9px 6px; }
   table.listen thead th { background: var(--green); color: #fff; font-size: 13.5px; cursor: default; }
   table.listen th.sys, table.listen td.sys { background: var(--green); color: #fff; font-weight: 600; width: 15%; }
   table.listen th.cond { background: #2c8f66; color: #fff; width: 13%; }
-  table.listen td.play { background: #f3f9f6; }
+  table.listen td.play { background: #fff; }
   table.listen tbody tr:hover td.play { background: var(--green-light); }
-  td.col-hl, th.col-hl { outline: 2px solid #9fd4bb; outline-offset: -2px; }
+  td.col-hl, th.col-hl { outline: 2px solid #7cbfa0; outline-offset: -2px; }
 
   .pbtn { width: 40px; height: 40px; border-radius: 50%; border: 2.5px solid var(--green);
           background: #fff; cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
@@ -83,13 +88,24 @@
   table.metrics { border-collapse: collapse; width: 100%; font-size: 14px; margin-top: 6px; }
   table.metrics th, table.metrics td { border: 1px solid var(--line); padding: 9px 12px; text-align: center; }
   table.metrics thead th { background: var(--green); color: #fff; }
-  table.metrics tbody tr:nth-child(even) { background: #f7fbf9; }
+  table.metrics tbody tr.best td { background: var(--green-light); }
   table.metrics td.l { text-align: left; }
-  .note { font-size: 12.5px; color: var(--muted); margin-top: 10px; }
+  table.metrics tbody tr:hover td { background: #f2f8f5; }
+  table.metrics tbody tr.best:hover td { background: #e2f0e8; }
+
+  /* ---------- 普通表格（排查记录等） ---------- */
+  table.plain { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+  table.plain th, table.plain td { border: 1px solid var(--line); padding: 9px 12px; text-align: left; vertical-align: top; }
+  table.plain thead th { background: var(--green); color: #fff; }
+
+  .note { font-size: 13px; color: var(--muted); margin-top: 10px; line-height: 1.75; }
+  .callout { border-left: 4px solid var(--green); background: #f4faf7; padding: 12px 16px; font-size: 13.5px; color: #333; border-radius: 0 6px 6px 0; }
+  .callout.warm { border-left-color: #b7791f; background: #fdf6ec; }
 
   footer { margin-top: 64px; padding-top: 18px; border-top: 1px solid var(--line);
            font-size: 13px; color: var(--muted); text-align: center; }
   footer a { color: var(--green); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
 </style>
 </head>
 <body>
@@ -97,9 +113,9 @@
 
   <header>
     <h1>🍵 Matcha-TTS <span class="accent">复现与改进</span> · Demo</h1>
-    <div class="sub">Conditional Flow Matching TTS · LJSpeech 单说话人 · 纯静态演示页</div>
+    <div class="sub">条件流匹配 TTS · LJSpeech 单说话人 · 骨干与算子替换实验</div>
     <div class="links">
-      <a href="#">GitHub 仓库</a> · <a href="https://github.com/shivammehta25/Matcha-TTS">原版 Matcha-TTS</a> ·
+      <a href="https://github.com/captwd/mamba-matcha-tts">GitHub 仓库</a> · <a href="https://github.com/shivammehta25/Matcha-TTS">原版 Matcha-TTS</a> ·
       <a href="https://github.com/NVIDIA/BigVGAN">BigVGAN</a>
     </div>
   </header>
@@ -122,7 +138,7 @@
     <div class="pnode"><b>波形</b><span>22050 Hz</span></div>
   </div>
   <div class="pipeline-note">
-    训练目标 = 时长损失 + 先验损失 + 流匹配损失；推理时只需 10 步 ODE 积分即可从噪声还原梅尔频谱（绿色高亮为本工作改动的两个模块）。
+    训练时同时优化时长损失、先验损失和流匹配损失；推理时从噪声出发做 10 步 ODE 积分得到梅尔频谱，再经声码器转成波形。图中绿色高亮的两块是这次改动的位置。
   </div>
   <div class="specs">
     <div class="chip">采样率 <b>22050 Hz</b></div>
@@ -133,12 +149,12 @@
   </div>
 
   <!-- ================= 2. 工作内容 ================= -->
-  <h2>本工作内容 <span class="en">What we did</span></h2>
+  <h2>做了哪些事 <span class="en">What we did</span></h2>
   <div class="cards">
-    <div class="card"><h3>① 基线复现</h3><p>在 LJSpeech 全量数据上以官方配置复现训练 140 epoch（从零 + 断点续训），确认流程与损失收敛行为与论文一致。</p></div>
-    <div class="card"><h3>② 声码器适配层</h3><p>将推理框架重构为注册表模式（matcha/vocoders/），新增 BigVGAN 适配器：mel 规格完全对齐，<b>无需重训声学模型</b>即插即用，与 HiFi-GAN 一键切换。</p></div>
-    <div class="card"><h3>③ 评价体系</h3><p>建立批量评估管线：DTW-MCD（梅尔倒谱失真）、ASR-WER/CER（wav2vec2 转写）、声码器往返校准下限，并输出每 epoch 的 val/MCD 曲线。</p></div>
-    <div class="card"><h3>④ 质量诊断</h3><p>定位"指标异常偏大"问题：经往返校准、跨语句基线与听写交叉验证，确认模型输出<b>可懂但细节偏糊</b>（少步采样的典型现象），并给出量化标定。</p></div>
+    <div class="card"><h3>① 基线复现</h3><p>用官方配置在 LJSpeech 全量上训练 140 epoch，从头训和断点续训都跑过，确认损失收敛和官方描述一致，作为后续对比的参照。</p></div>
+    <div class="card"><h3>② 声码器适配层</h3><p>把推理侧的声码器加载重写成注册表，接一个 BigVGAN 适配器：mel 规格对齐后即插即用，不用重训声学模型，和 HiFi-GAN 可以随时切换。</p></div>
+    <div class="card"><h3>③ 评估管线</h3><p>写了批量评估脚本，一次跑完合成、DTW-MCD、wav2vec2 转写算 WER/CER，并做声码器往返校准；训练时也记录每轮的 val MCD 曲线。</p></div>
+    <div class="card"><h3>④ 质量诊断</h3><p>一开始 MCD 数值偏大，做了往返校准、跨语句对照和人工听写交叉验证，确认是"能听懂但细节偏糊"，属于少步 ODE 采样的常见现象，并给出了量化标定。</p></div>
   </div>
 
   <!-- ================= 3. 试听 ================= -->
@@ -146,7 +162,7 @@
   <div class="transcription">
     <span class="label">Transcription:</span>
     <span class="text" id="trans-text"></span>
-    <span class="tip">（悬停/点击列可切换句子，点击 ▶ 播放）</span>
+    <span class="tip">（悬停或点击某一列切换句子，点 ▶ 播放）</span>
   </div>
 
   <table class="listen" id="listen-table">
@@ -217,7 +233,7 @@
     </tbody>
   </table>
 
-  <!-- ================= 5. 退化/震荡现象研究 ================= -->
+  <!-- ================= 4. 客观指标 ================= -->
   <h2>客观指标 <span class="en">Metrics · LJSpeech val 全量 100 条</span></h2>
   <table class="metrics">
     <thead>
@@ -232,69 +248,67 @@
       <tr>
         <td class="l">本复现 140ep + BigVGAN</td>
         <td><b>9.2%</b></td><td><b>2.6%</b></td><td>7.6%</td><td>52.9 ± 17.1</td>
-        <td class="l">仅比上限高 1.6 点，错误主要来自 ASR 本身</td>
+        <td class="l">比上限高 1.6 个点，其余错误来自 ASR 本身</td>
       </tr>
       <tr>
-        <td class="l">ConvNeXt V2 + BigVGAN（最佳 ep130）</td>
+        <td class="l">ConvNeXt V2 + BigVGAN（ep130）</td>
         <td>10.4%</td><td>2.9%</td><td>7.6%</td><td><b>51.8 ± 16.1</b></td>
-        <td class="l">MCD 优于基线最佳；MCD 随 checkpoint 震荡 ±2~4dB（见专题）</td>
+        <td class="l">MCD 好于基线，但随 checkpoint 震荡 ±2~4dB（见下方专题）</td>
       </tr>
       <tr>
         <td class="l">ConvNeXt V2 + HiFi-GAN（ep130）</td>
         <td>10.7%</td><td>3.2%</td><td>7.6%</td><td><b>51.8 ± 16.2</b></td>
-        <td class="l">与 BigVGAN 打平（WER p=0.93 / MCD p=0.15）</td>
+        <td class="l">与 BigVGAN 基本一致（WER p=0.93 / MCD p=0.15）</td>
       </tr>
-      <tr>
+      <tr class="best">
         <td class="l"><b>ConvNeXt V2 + LR 衰减</b> + BigVGAN（ep135）</td>
         <td><b>10.1%</b></td><td><b>2.9%</b></td><td>7.6%</td><td><b>51.0 ± 16.8</b></td>
-        <td class="l">MCD 显著优于基线（p=0.0024）；全场最佳系统</td>
+        <td class="l">MCD 明显好于基线（p=0.0024），本页最好的一组</td>
       </tr>
       <tr>
-        <td class="l">ConvNeXt V2 + BigVGAN（ep140 恒定LR 对照）</td>
+        <td class="l">ConvNeXt V2 + BigVGAN（ep140，恒定 LR）</td>
         <td>11.3%</td><td>3.3%</td><td>7.6%</td><td>56.4 ± 16.5</td>
-        <td class="l">恒定 LR 震荡波峰处取点（详见专题）</td>
+        <td class="l">取在震荡波峰处，正好说明单点取值不可靠</td>
       </tr>
       <tr>
         <td class="l">本复现 140ep + HiFi-GAN</td>
         <td>9.3%</td><td>2.5%</td><td>7.6%</td><td>52.9 ± 17.2</td>
-        <td class="l">与 BigVGAN 统计打平——免重训换声码器成立</td>
+        <td class="l">与 BigVGAN 统计上无差别——换声码器不用重训</td>
       </tr>
       <tr>
         <td class="l">声码器往返校准（下限）</td>
         <td>—</td><td>—</td><td>—</td><td><b>3.6</b></td>
-        <td class="l">GT mel → BigVGAN → 重提 mel，链路无损验证</td>
+        <td class="l">真实 mel → BigVGAN → 重新提取 mel，用于确认链路无损</td>
       </tr>
     </tbody>
   </table>
   <div class="note">
-    ① WER/CER 由 wav2vec2（960h）转写计算；MCD 为 log-mel(80)+DCT 提取器的 DTW 对齐值，<b>绝对数值只用于同一提取器下的相对比较</b>（与论文中 SPTK-mcep 的 3~8dB 量纲不同）。
-    ② 所有评估统一挂 Denoiser（HiFi-GAN/BigVGAN 同配方公平对比；30 句配对 A/B 显示对 BigVGAN 无显著影响，p&gt;0.5）。
-    ③ 本复现模型经诊断属于"可懂但细节偏糊"（少步 ODE 采样的典型现象），MCD 偏高即反映该项；后续改进方向即降低 MCD 逼近 3.6dB 下限。
-    ④ 所有音频均由本地模型合成，仅供研究演示。
+    ① WER/CER 用 wav2vec2（960h）转写后计算；MCD 是本仓库自写提取器（log-mel 80 + DCT + DTW）的值，绝对值只在同一提取器内比较才有意义，和论文里 SPTK-mcep 的量纲不是一回事。<br>
+    ② 所有系统评估时都挂了 Denoiser（BigVGAN 与 HiFi-GAN 用同一配方）；30 句配对 A/B 显示去噪器对 BigVGAN 结果没有显著影响（p&gt;0.5）。<br>
+    ③ 基线模型经诊断属于"能听懂但细节偏糊"，这是少步 ODE 采样常见的现象，MCD 偏高反映的正是这一点；后续改进的目标就是把它往 3.6dB 的下限压。
   </div>
 
-  <h2>专题：checkpoint 质量震荡现象 <span class="en">MCD Oscillation Study</span></h2>
+  <h2>专题：checkpoint 的质量震荡 <span class="en">MCD Oscillation Study</span></h2>
   <div class="note" style="margin-top:0">
-    <b>现象</b>：相邻 checkpoint（间隔 5 epoch）之间，合成梅尔的 DTW-MCD 波动可达 <b>±2~4dB</b>，远大于骨干差异（~1dB）。
-    两种声码器在每个 checkpoint 上几乎给出完全相同的读数（差 &lt;0.3dB）→ 震荡是<b>模型属性</b>，与声码器、去噪器无关。
+    相邻 checkpoint（间隔 5 epoch）的 DTW-MCD 能差出 <b>±2~4dB</b>，比骨干之间的差距（约 1dB）大得多。两种声码器在每个 checkpoint 上给出的读数几乎一样（差 &lt;0.3dB），说明这是<b>模型自身的性质</b>，跟声码器、去噪器没关系。
   </div>
 
   <figure>
     <svg viewBox="0 0 940 380" xmlns="http://www.w3.org/2000/svg">
       <!-- grid -->
-      <g stroke="#e3e8e5" stroke-width="1">
+      <g stroke="#d5ddd9" stroke-width="1">
         <line x1="60" y1="40" x2="900" y2="40"/><line x1="60" y1="110" x2="900" y2="110"/>
         <line x1="60" y1="180" x2="900" y2="180"/><line x1="60" y1="250" x2="900" y2="250"/>
         <line x1="60" y1="320" x2="900" y2="320"/>
       </g>
-      <g font-size="11" fill="#666">
+      <g font-size="11" fill="#444">
         <text x="52" y="44" text-anchor="end">58</text><text x="52" y="114" text-anchor="end">56</text>
         <text x="52" y="184" text-anchor="end">54</text><text x="52" y="254" text-anchor="end">52</text>
         <text x="52" y="324" text-anchor="end">50</text>
         <text x="60" y="348" text-anchor="middle">ep90</text><text x="210" y="348" text-anchor="middle">ep95</text>
         <text x="360" y="348" text-anchor="middle">ep100</text><text x="510" y="348" text-anchor="middle">ep130</text>
         <text x="660" y="348" text-anchor="middle">ep135</text><text x="810" y="348" text-anchor="middle">ep140</text>
-        <text x="470" y="372" text-anchor="middle" fill="#999">（ep100→130 之间的 110/120 未存档；横轴类别间距非等比）</text>
+        <text x="470" y="372" text-anchor="middle" fill="#555">（ep100→130 之间的 110/120 未存档；横轴类别间距非等比）</text>
       </g>
       <!-- ConvNeXt series: (90,56.67)(95,52.54)(100,54.36)(130,51.79)(135,54.40)(140,56.33) -->
       <polyline points="60,93 210,236 360,172 510,286 660,171 810,98" fill="none" stroke="#1e7a55" stroke-width="2.5"/>
@@ -317,7 +331,7 @@
       <text x="90" y="82" font-size="12" fill="#1e7a55">56.7</text>
       <text x="215" y="255" font-size="12" fill="#1e7a55">52.5</text>
       <text x="362" y="192" font-size="12" fill="#1e7a55">54.4</text>
-      <text x="516" y="306" font-size="12" fill="#1e7a55" font-weight="bold">51.8 ★最佳</text>
+      <text x="516" y="306" font-size="12" fill="#1e7a55" font-weight="bold">51.8 最佳</text>
       <text x="662" y="191" font-size="12" fill="#1e7a55">54.4</text>
       <text x="818" y="92" font-size="12" fill="#1e7a55">56.3</text>
       <text x="540" y="108" font-size="12" fill="#2563ab">56.0</text>
@@ -325,39 +339,42 @@
       <text x="818" y="246" font-size="12" fill="#2563ab">52.9</text>
       <!-- legend -->
       <g font-size="12">
-        <line x1="540" y1="20" x2="570" y2="20" stroke="#1e7a55" stroke-width="2.5"/><text x="576" y="24" fill="#1e7a55">ConvNeXt 恒定LR</text>
+        <line x1="540" y1="20" x2="570" y2="20" stroke="#1e7a55" stroke-width="2.5"/><text x="576" y="24" fill="#1e7a55">ConvNeXt 恒定 LR</text>
         <line x1="690" y1="20" x2="720" y2="20" stroke="#2563ab" stroke-width="2.5" stroke-dasharray="7 4"/><text x="726" y="40" fill="#2563ab">U-Net 基线</text>
-        <line x1="540" y1="36" x2="570" y2="36" stroke="#b7791f" stroke-width="2.5"/><text x="576" y="40" fill="#b7791f" font-weight="bold">ConvNeXt + LR衰减 ✔</text>
+        <line x1="540" y1="36" x2="570" y2="36" stroke="#b7791f" stroke-width="2.5"/><text x="576" y="40" fill="#b7791f" font-weight="bold">ConvNeXt + LR 衰减</text>
       </g>
     </svg>
-    <figcaption>图 · DTW-MCD 随 checkpoint 的震荡（val 全量 100 句）。两模型的震荡幅度（±2~4dB）远大于两者最优状态的差距（~1dB）</figcaption>
+    <figcaption>DTW-MCD 随 checkpoint 的波动（val 全量 100 句）。两条曲线的震荡幅度都远大于它们最优状态之间的差距。</figcaption>
   </figure>
 
-  <h3>排查记录（已排除项）</h3>
-  <table>
+  <h3>排查过程</h3>
+  <table class="plain">
     <thead><tr><th>候选原因</th><th>验证方法</th><th>结论</th></tr></thead>
     <tbody>
-      <tr><td>去噪器 / 声码器差异</td><td>同一 checkpoint × 挂/不挂 Denoiser × HiFi/BigVGAN（2×2 矩阵 + 声码器 A/B）</td><td>排除：各设置下曲线完全同步（差&lt;0.3dB），6 组配对检验全不显著</td></tr>
-      <tr><td>时长预测漂移（DTW 对齐变难）</td><td>各 checkpoint 的 gen_len/ref_len 比</td><td>排除：比值稳定在 0.98~1.03，无漂移趋势</td></tr>
-      <tr><td>评估采样随机性</td><td>两声码器独立随机采样后对比</td><td>排除：两声码器曲线相关系数近 1，说明读数来自模型本身</td></tr>
-      <tr><td><b>恒定学习率扰动</b>（头号假设）</td><td>checkpoint 实测：lr=1e-4 全程无衰减</td><td>待验证：临近收敛的大步长使权重在盆内弹跳，ODE 轨迹落入不同"质量口袋"；val loss(MSE) 对此不敏感</td></tr>
+      <tr><td>去噪器 / 声码器差异</td><td>同一 checkpoint × 挂/不挂 Denoiser × HiFi/BigVGAN（2×2 矩阵 + 声码器 A/B）</td><td>排除：各设置下曲线完全同步（差 &lt;0.3dB），6 组配对检验都不显著</td></tr>
+      <tr><td>时长预测漂移（DTW 对齐变难）</td><td>各 checkpoint 的 gen_len/ref_len 比</td><td>排除：比值稳定在 0.98~1.03，没有趋势</td></tr>
+      <tr><td>评估采样随机性</td><td>两种声码器各自独立随机采样后对比</td><td>排除：两条曲线几乎重合，读数来自模型本身</td></tr>
+      <tr><td>恒定学习率扰动</td><td>checkpoint 实测 lr=1e-4 全程无衰减；再从同一 ep100 出发做衰减/恒定对照</td><td>成立：临近收敛时步长偏大，权重在损失盆内来回跳，ODE 轨迹落进不同的"质量口袋"；val loss（MSE）对此不敏感</td></tr>
     </tbody>
   </table>
 
-  <h3>✔ 假设验证：LR 衰减干预实验（2026-09-07）</h3>
-  <div class="note" style="border-left-color:#b7791f; background:#fdf3e7">
-    <b>设计</b>：从同一 ep100 checkpoint 出发重跑 40 epoch，唯一变量 = "ep105 起 LR 阶梯衰减（1e-4 → 6.25e-6，每 10 epoch 减半）"。
-    <b>结果</b>：衰减轨迹在 ep120 后平稳于 51~52.6dB 区间，而恒定 LR 轨迹同期震荡至 56.3；同 epoch 逐句配对全面优于恒定版——
-    ep130 −0.62（p=0.036）→ ep135 −3.37（p&lt;0.0001）→ ep140 −3.78（p&lt;0.0001），<b>差距随 LR 降低而扩大（剂量-反应关系）</b>；WER 全程不受影响（p&gt;0.59）。
-    <br><b>定论</b>："恒定学习率扰动 → 细节质量震荡"因果成立。修复后 ConvNeXt 最佳（ep135，51.0dB）<b>显著优于基线</b>（52.9dB，p=0.0024），WER 打平（p=0.18）——骨干替换从此有正面结论。
+  <h3>验证：LR 衰减干预实验</h3>
+  <div class="callout warm">
+    <b>做法</b>：从同一个 ep100 checkpoint 出发再训 40 epoch，唯一变量是"ep105 起 LR 阶梯衰减（1e-4 → 6.25e-6，每 10 epoch 减半）"。<br>
+    <b>结果</b>：衰减的那条在 ep120 之后稳定在 51~52.6dB，恒定 LR 那条同期抖到 56.3。逐句配对比较，同一 epoch 上衰减版全面占优：ep130 差 −0.62（p=0.036）、ep135 差 −3.37（p&lt;0.0001）、ep140 差 −3.78（p&lt;0.0001）——<b>LR 越低，差距越大</b>；WER 全程没有变化（p&gt;0.59）。<br>
+    <b>结论</b>：恒定学习率导致细节质量震荡这件事，因果上确认了。修好之后 ConvNeXt 最好的一组（ep135，51.0dB）明显好于基线（52.9dB，p=0.0024），WER 打平（p=0.18）——换骨干这个方向算是拿到了正面结论。
   </div>
 
-  <h3>实践启示</h3>
-  <p style="font-size:14px">① <b>单 checkpoint 的骨干对比不可靠</b>——震荡幅度大于骨干差异，必须测多点或做 checkpoint 平均（weight soup）；② 修复后 ConvNeXt 最佳（ep135，51.0dB）<b>显著优于基线最佳</b>（52.9dB，p=0.0024），WER 打平（p=0.18）；③ 缓解手段已验证：后期 LR 衰减（本实验）；④ WER 全程稳定而 MCD 剧烈波动 → 可懂度鲁棒、细节脆弱，两者要分开报告。</p>
+  <h3>几点体会</h3>
+  <p style="font-size:14px">
+    ① 只拿一个 checkpoint 比骨干不可靠——震荡幅度比骨干差距还大，要么多点取样，要么做 checkpoint 平均；<br>
+    ② WER 一直稳、MCD 抖得厉害，说明可懂度和细节是两回事，报告时要分开看；<br>
+    ③ 后期 LR 衰减是目前验证过的有效缓解手段。
+  </p>
+
   <footer>
     基于 <a href="https://github.com/shivammehta25/Matcha-TTS">Matcha-TTS</a>（Mehta et al., 2023）复现 · 声码器 <a href="https://github.com/NVIDIA/BigVGAN">BigVGAN</a> ·
-    评估 ASR <a href="https://ai.meta.com/blog/wav2vec-20-learning-speech-representations-from-raw-audio/">wav2vec2</a><br>
-    本页为纯静态页面（无外部依赖），可直接由 GitHub Pages 托管。
+    评估 ASR <a href="https://ai.meta.com/blog/wav2vec-20-learning-speech-representations-from-raw-audio/">wav2vec2</a>
   </footer>
 </div>
 
