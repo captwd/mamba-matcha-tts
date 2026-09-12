@@ -1,27 +1,14 @@
-<div align="center">
+# Mamba-Matcha-TTS
 
-# 🍵 Matcha-TTS: A fast TTS architecture with conditional flow matching
+在 [Matcha-TTS](https://github.com/shivammehta25/Matcha-TTS)（ICASSP 2024，基于条件流匹配的非自回归 TTS）基础上做的**骨干 / 算子替换实验**仓库：
 
-### [Shivam Mehta](https://www.kth.se/profile/smehta), [Ruibo Tu](https://www.kth.se/profile/ruibo), [Jonas Beskow](https://www.kth.se/profile/beskow), [Éva Székely](https://www.kth.se/profile/szekely), and [Gustav Eje Henter](https://people.kth.se/~ghe/)
+- 把 U-Net 声学骨干的**全局混合器**（Self-Attention）替换为**双向 Mamba2**
+- 把**局部特征块**替换为 **ConvNeXt V2** 单元
+- 配套：声码器注册表（HiFi-GAN / BigVGAN）、MCD/WER/CER 评估体系、离线预处理缓存
 
-[![python](https://img.shields.io/badge/-Python_3.10-blue?logo=python&logoColor=white)](https://www.python.org/downloads/release/python-3100/)
-[![pytorch](https://img.shields.io/badge/PyTorch_2.0+-ee4c2c?logo=pytorch&logoColor=white)](https://pytorch.org/get-started/locally/)
-[![lightning](https://img.shields.io/badge/-Lightning_2.0+-792ee5?logo=pytorchlightning&logoColor=white)](https://pytorchlightning.ai/)
-[![hydra](https://img.shields.io/badge/Config-Hydra_1.3-89b8cd)](https://hydra.cc/)
-[![black](https://img.shields.io/badge/Code%20Style-Black-black.svg?labelColor=gray)](https://black.readthedocs.io/en/stable/)
-[![isort](https://img.shields.io/badge/%20imports-isort-%231674b1?style=flat&labelColor=ef8336)](https://pycqa.github.io/isort/)
-[![PyPI Downloads](https://static.pepy.tech/personalized-badge/matcha-tts?period=total&units=INTERNATIONAL_SYSTEM&left_color=BLACK&right_color=GREEN&left_text=downloads)](https://pepy.tech/projects/matcha-tts)
-<p style="text-align: center;">
-  <img src="https://shivammehta25.github.io/Matcha-TTS/images/logo.png" height="128"/>
-</p>
+所有变体通过配置开关隔离，同一份代码可跑全部实验。上游原版说明与论文引用见文末[关于上游](#关于上游)。
 
-</div>
-
----
-
-## 本仓库改动（相对上游官方版）
-
-本仓库是 [shivammehta25/Matcha-TTS](https://github.com/shivammehta25/Matcha-TTS) 的改造版，围绕"**在 Matcha-TTS 上做骨干 / 算子替换实验**"展开。所有改动通过配置开关隔离，同一份代码可跑全部变体。
+## 本仓库改动
 
 | 模块 | 改动 | 入口 |
 |---|---|---|
@@ -33,310 +20,136 @@
 | **文档** | 每日工作总结、改动清单、硬件 / 参数图解文档 | `docs/` |
 | **静态 Demo** | 多系统试听页与一键音频生成脚本 | `demo/` · `scripts/prepare_demo_audio.py` |
 
-### 快速上手
+## 环境安装
+
+```bash
+conda create -n matcha python=3.11 -y
+conda activate matcha
+pip install -e .
+```
+
+文本前端依赖系统级 `espeak-ng`（pip 装不了）：
+
+```bash
+# Ubuntu / WSL
+sudo apt-get install -y espeak-ng
+# Windows
+winget install --id eSpeak-NG.eSpeak-NG --silent
+```
+
+Mamba 变体需要 Linux / WSL + `mamba-ssm`（Windows 无官方 wheel）。安装与验证脚本见 [`wsl_env/`](wsl_env/)：
+
+```bash
+bash wsl_env/install_mamba_wheels.sh   # 官方预编译 wheel（torch2.8 + cu128 + cp311）
+python wsl_env/smoke.py                # 环境自检（torch/CUDA/matcha 导入）
+python wsl_env/test_mamba_gpu.py       # Mamba / causal_conv1d GPU 前向+反向
+```
+
+## 数据准备（以 LJSpeech 为例）
+
+1. 下载 [LJSpeech-1.1](https://keithito.com/LJ-Speech-Dataset/)，解压到 `data/LJSpeech-1.1`
+2. 生成训练 / 验证文件列表：
+
+   ```bash
+   python scripts/prepare_ljspeech_filelists.py
+   ```
+
+3. 计算归一化统计量，写入 `configs/data/ljspeech.yaml` 的 `data_statistics`：
+
+   ```bash
+   matcha-data-stats -i ljspeech.yaml
+   ```
+
+4. （可选，推荐）离线预处理缓存：
+
+   ```bash
+   python scripts/preprocess_dataset.py --data_config configs/data/ljspeech.yaml --workers 8
+   ```
+
+## 训练
 
 ```bash
 # 基线（原版 Transformer + U-Net）
 python matcha/train.py experiment=ljspeech_min_memory
 
-# 换全局混合器为双向 Mamba2（需 Linux/WSL + mamba-ssm，见 wsl_env/）
+# 双向 Mamba2 全局混合器（需 Linux/WSL）
 python matcha/train.py experiment=ljspeech_min_memory model/decoder=mamba
 
-# 换局部算子为 ConvNeXt V2
+# ConvNeXt V2 局部算子
 python matcha/train.py experiment=ljspeech_min_memory +model.decoder.resnet_type=convnext_v2
 
-# 批量评估（统一协议：HiFi-GAN T2 + Denoiser、val 100 句、ODE 10 步）
-python scripts/evaluate.py --checkpoint_path <ckpt> --filelist data/LJSpeech-1.1/val.txt \
-    --output_folder results/eval_xxx --vocoder hifigan_T2_v1 --steps 10
+# 只替换中间段，做小步验证
+python matcha/train.py experiment=ljspeech_min_memory model/decoder.mid_block_type=mamba
 ```
 
-### 文档与实验记录
+常用覆盖项：
+
+```bash
+data.batch_size=32 +trainer.accumulate_grad_batches=2 \
+trainer.max_epochs=140 trainer.check_val_every_n_epoch=5 \
+callbacks.model_checkpoint.every_n_epochs=5 callbacks.model_checkpoint.save_top_k=8
+```
+
+## 合成 / 推理
+
+```bash
+# 命令行合成（需指定自己的 checkpoint；声码器可选 hifigan_T2_v1 / hifigan_univ_v1 / bigvgan）
+matcha-tts --text "<文本>" --checkpoint_path <ckpt> --vocoder hifigan_T2_v1
+
+# Gradio 界面
+matcha-tts-app
+```
+
+## 评估
+
+统一协议：**HiFi-GAN T2 + Denoiser、val 全量 100 句、ODE 10 步**（`--no_denoiser` 可关闭去噪器）。
+
+```bash
+python scripts/evaluate.py \
+    --checkpoint_path <ckpt> \
+    --filelist data/LJSpeech-1.1/val.txt \
+    --output_folder results/eval_xxx \
+    --vocoder hifigan_T2_v1 --steps 10
+```
+
+输出逐句 `results.csv`（MCD / WER / CER），可与其他系统做**逐句配对 Wilcoxon 检验**（示例：`wsl_env/compare_final.sh`）。
+
+指标口径（重要）：
+
+- MCD 使用本仓库自研提取器（log-mel 80 + DCT-II + DTW），**绝对值只做同体系横向比较**。参考刻度：声码器往返 ≈ 3.65 dB（链路下限）、已训模型 ≈ 51–53 dB、跨语句自然语音 ≈ 55–90 dB
+- WER / CER 由 wav2vec2 ASR 计算，存在 ASR 上限（真实语音自身 WER ≈ 7.6%），接近上限时差异会被压缩
+
+## 其它功能
+
+- **ONNX 导出 / 推理**：`python3 -m matcha.onnx.export` / `python3 -m matcha.onnx.infer`（上游功能，已保留）
+- **从训练模型提取音素时长**：`matcha-tts-get-durations -i ljspeech.yaml -c <ckpt>`
+- **静态试听 Demo**：[`demo/`](demo/)，`scripts/prepare_demo_audio.py` 可一键重新生成全部音频
+
+## 文档与实验记录
 
 - 改动清单：[`docs/modifications.md`](docs/modifications.md)
-- 工作总结：[`docs/2026-09-08_summary.md`](docs/2026-09-08_summary.md)（WSL 迁移 + Mamba 对照实验）、[`docs/2026-09-06_summary.md`](docs/2026-09-06_summary.md)（评估体系 + ConvNeXt V2 + LR 衰减）
+- 工作总结：
+  - [`docs/2026-09-08_summary.md`](docs/2026-09-08_summary.md)：WSL 迁移、mamba-ssm 安装、Mamba 对照实验与统计结论
+  - [`docs/2026-09-06_summary.md`](docs/2026-09-06_summary.md)：评估体系、ConvNeXt V2、LR 衰减干预与震荡机制
 - 训练日志：[`docs/worklog.md`](docs/worklog.md)
 - 系列博客：<https://captwd.github.io/series/>
 - WSL / mamba 环境脚本：[`wsl_env/`](wsl_env/)
 
-> 仓库不含数据集（LJSpeech 需自行下载）与模型权重 / checkpoint；`results/` 仅保留逐句指标 CSV，评估音频由 `demo/` 提供试听样本。
+> 仓库**不含**数据集与模型权重 / checkpoint（`data/`、`logs/` 已忽略）；`results/` 仅保留逐句指标 CSV，评估音频由 `demo/` 提供试听样本。
 
----
+## 关于上游
 
-> This is the official code implementation of 🍵 Matcha-TTS [ICASSP 2024].
+本仓库基于 [shivammehta25/Matcha-TTS](https://github.com/shivammehta25/Matcha-TTS) 修改，保留其 [MIT License](LICENSE)。
 
-We propose 🍵 Matcha-TTS, a new approach to non-autoregressive neural TTS, that uses [conditional flow matching](https://arxiv.org/abs/2210.02747) (similar to [rectified flows](https://arxiv.org/abs/2209.03003)) to speed up ODE-based speech synthesis. Our method:
+Matcha-TTS 提出了一种基于条件流匹配（conditional flow matching）的非自回归 TTS 架构，特点是概率化建模、内存占用小、合成速度快、音质自然。原论文与官方资源：
 
-- Is probabilistic
-- Has compact memory footprint
-- Sounds highly natural
-- Is very fast to synthesise from
+- 论文：<https://arxiv.org/abs/2309.03199>（ICASSP 2024）
+- 官方 demo：<https://shivammehta25.github.io/Matcha-TTS>
+- 预训练模型 / HuggingFace Space：见上游 README
 
-Check out our [demo page](https://shivammehta25.github.io/Matcha-TTS) and read [our ICASSP 2024 paper](https://arxiv.org/abs/2309.03199) for more details.
+### 引用
 
-[Pre-trained models](https://drive.google.com/drive/folders/17C_gYgEHOxI5ZypcfE_k1piKCtyR0isJ?usp=sharing) will be automatically downloaded with the CLI or gradio interface.
-
-You can also [try 🍵 Matcha-TTS in your browser on HuggingFace 🤗 spaces](https://huggingface.co/spaces/shivammehta25/Matcha-TTS).
-
-## Teaser video
-
-[![Watch the video](https://img.youtube.com/vi/xmvJkz3bqw0/hqdefault.jpg)](https://youtu.be/xmvJkz3bqw0)
-
-## Installation
-
-1. Create an environment (suggested but optional)
-
-```
-conda create -n matcha-tts python=3.10 -y
-conda activate matcha-tts
-```
-
-2. Install Matcha TTS using pip or from source
-
-```bash
-pip install matcha-tts
-```
-
-from source
-
-```bash
-pip install git+https://github.com/shivammehta25/Matcha-TTS.git
-cd Matcha-TTS
-pip install -e .
-```
-
-3. Run CLI / gradio app / jupyter notebook
-
-```bash
-# This will download the required models
-matcha-tts --text "<INPUT TEXT>"
-```
-
-or
-
-```bash
-matcha-tts-app
-```
-
-or open `synthesis.ipynb` on jupyter notebook
-
-### CLI Arguments
-
-- To synthesise from given text, run:
-
-```bash
-matcha-tts --text "<INPUT TEXT>"
-```
-
-- To synthesise from a file, run:
-
-```bash
-matcha-tts --file <PATH TO FILE>
-```
-
-- To batch synthesise from a file, run:
-
-```bash
-matcha-tts --file <PATH TO FILE> --batched
-```
-
-Additional arguments
-
-- Speaking rate
-
-```bash
-matcha-tts --text "<INPUT TEXT>" --speaking_rate 1.0
-```
-
-- Sampling temperature
-
-```bash
-matcha-tts --text "<INPUT TEXT>" --temperature 0.667
-```
-
-- Euler ODE solver steps
-
-```bash
-matcha-tts --text "<INPUT TEXT>" --steps 10
-```
-
-## Train with your own dataset
-
-Let's assume we are training with LJ Speech
-
-1. Download the dataset from [here](https://keithito.com/LJ-Speech-Dataset/), extract it to `data/LJSpeech-1.1`, and prepare the file lists to point to the extracted data like for [item 5 in the setup of the NVIDIA Tacotron 2 repo](https://github.com/NVIDIA/tacotron2#setup).
-
-2. Clone and enter the Matcha-TTS repository
-
-```bash
-git clone https://github.com/shivammehta25/Matcha-TTS.git
-cd Matcha-TTS
-```
-
-3. Install the package from source
-
-```bash
-pip install -e .
-```
-
-4. Go to `configs/data/ljspeech.yaml` and change
-
-```yaml
-train_filelist_path: data/filelists/ljs_audio_text_train_filelist.txt
-valid_filelist_path: data/filelists/ljs_audio_text_val_filelist.txt
-```
-
-5. Generate normalisation statistics with the yaml file of dataset configuration
-
-```bash
-matcha-data-stats -i ljspeech.yaml
-# Output:
-#{'mel_mean': -5.53662231756592, 'mel_std': 2.1161014277038574}
-```
-
-Update these values in `configs/data/ljspeech.yaml` under `data_statistics` key.
-
-```bash
-data_statistics:  # Computed for ljspeech dataset
-  mel_mean: -5.536622
-  mel_std: 2.116101
-```
-
-to the paths of your train and validation filelists.
-
-6. Run the training script
-
-```bash
-make train-ljspeech
-```
-
-or
-
-```bash
-python matcha/train.py experiment=ljspeech
-```
-
-- for a minimum memory run
-
-```bash
-python matcha/train.py experiment=ljspeech_min_memory
-```
-
-- for multi-gpu training, run
-
-```bash
-python matcha/train.py experiment=ljspeech trainer.devices=[0,1]
-```
-
-7. Synthesise from the custom trained model
-
-```bash
-matcha-tts --text "<INPUT TEXT>" --checkpoint_path <PATH TO CHECKPOINT>
-```
-
-## ONNX support
-
-> Special thanks to [@mush42](https://github.com/mush42) for implementing ONNX export and inference support.
-
-It is possible to export Matcha checkpoints to [ONNX](https://onnx.ai/), and run inference on the exported ONNX graph.
-
-### ONNX export
-
-To export a checkpoint to ONNX, first install ONNX with
-
-```bash
-pip install onnx
-```
-
-then run the following:
-
-```bash
-python3 -m matcha.onnx.export matcha.ckpt model.onnx --n-timesteps 5
-```
-
-Optionally, the ONNX exporter accepts **vocoder-name** and **vocoder-checkpoint** arguments. This enables you to embed the vocoder in the exported graph and generate waveforms in a single run (similar to end-to-end TTS systems).
-
-**Note** that `n_timesteps` is treated as a hyper-parameter rather than a model input. This means you should specify it during export (not during inference). If not specified, `n_timesteps` is set to **5**.
-
-**Important**: for now, torch>=2.1.0 is needed for export since the `scaled_product_attention` operator is not exportable in older versions. Until the final version is released, those who want to export their models must install torch>=2.1.0 manually as a pre-release.
-
-### ONNX Inference
-
-To run inference on the exported model, first install `onnxruntime` using
-
-```bash
-pip install onnxruntime
-pip install onnxruntime-gpu  # for GPU inference
-```
-
-then use the following:
-
-```bash
-python3 -m matcha.onnx.infer model.onnx --text "hey" --output-dir ./outputs
-```
-
-You can also control synthesis parameters:
-
-```bash
-python3 -m matcha.onnx.infer model.onnx --text "hey" --output-dir ./outputs --temperature 0.4 --speaking_rate 0.9 --spk 0
-```
-
-To run inference on **GPU**, make sure to install **onnxruntime-gpu** package, and then pass `--gpu` to the inference command:
-
-```bash
-python3 -m matcha.onnx.infer model.onnx --text "hey" --output-dir ./outputs --gpu
-```
-
-If you exported only Matcha to ONNX, this will write mel-spectrogram as graphs and `numpy` arrays to the output directory.
-If you embedded the vocoder in the exported graph, this will write `.wav` audio files to the output directory.
-
-If you exported only Matcha to ONNX, and you want to run a full TTS pipeline, you can pass a path to a vocoder model in `ONNX` format:
-
-```bash
-python3 -m matcha.onnx.infer model.onnx --text "hey" --output-dir ./outputs --vocoder hifigan.small.onnx
-```
-
-This will write `.wav` audio files to the output directory.
-
-## Extract phoneme alignments from Matcha-TTS
-
-If the dataset is structured as
-
-```bash
-data/
-└── LJSpeech-1.1
-    ├── metadata.csv
-    ├── README
-    ├── test.txt
-    ├── train.txt
-    ├── val.txt
-    └── wavs
-```
-Then you can extract the phoneme level alignments from a Trained Matcha-TTS model using:
-```bash
-python  matcha/utils/get_durations_from_trained_model.py -i dataset_yaml -c <checkpoint>
-```
-Example:
-```bash
-python  matcha/utils/get_durations_from_trained_model.py -i ljspeech.yaml -c matcha_ljspeech.ckpt
-```
-or simply:
-```bash
-matcha-tts-get-durations -i ljspeech.yaml -c matcha_ljspeech.ckpt
-```
----
-## Train using extracted alignments
-
-In the datasetconfig turn on load duration.
-Example: `ljspeech.yaml`
-```
-load_durations: True
-```
-or see an examples in configs/experiment/ljspeech_from_durations.yaml
-
-
-## Citation information
-
-If you use our code or otherwise find this work useful, please cite our paper:
+如果你使用了上游代码或论文，请引用：
 
 ```text
 @inproceedings{mehta2024matcha,
@@ -347,14 +160,10 @@ If you use our code or otherwise find this work useful, please cite our paper:
 }
 ```
 
-## Acknowledgements
+### 致谢
 
-Since this code uses [Lightning-Hydra-Template](https://github.com/ashleve/lightning-hydra-template), you have all the powers that come with it.
-
-Other source code we would like to acknowledge:
-
-- [Coqui-TTS](https://github.com/coqui-ai/TTS/tree/dev): For helping me figure out how to make cython binaries pip installable and encouragement
-- [Hugging Face Diffusers](https://huggingface.co/): For their awesome diffusers library and its components
-- [Grad-TTS](https://github.com/huawei-noah/Speech-Backbones/tree/main/Grad-TTS): For the monotonic alignment search source code
-- [torchdyn](https://github.com/DiffEqML/torchdyn): Useful for trying other ODE solvers during research and development
-- [labml.ai](https://nn.labml.ai/transformers/rope/index.html): For the RoPE implementation
+- [Lightning-Hydra-Template](https://github.com/ashleve/lightning-hydra-template)：训练框架基础
+- [Coqui-TTS](https://github.com/coqui-ai/TTS/tree/dev)：Cython 二进制打包思路
+- [Hugging Face Diffusers](https://github.com/huggingface/diffusers)：Transformer 组件与 BigVGAN 生态
+- [Grad-TTS](https://github.com/huawei-noah/Speech-Backbones/tree/main/Grad-TTS)：单调对齐搜索源码
+- [torchdyn](https://github.com/DiffEqML/torchdyn)、[labml.ai](https://nn.labml.ai/transformers/rope/index.html)：ODE 求解器与 RoPE 实现参考
