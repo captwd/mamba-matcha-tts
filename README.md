@@ -29,7 +29,7 @@
 | **ConvNeXt V2 局部算子** | 局部特征块（ResnetBlock1D）可替换为 ConvNeXt V2 单元（深度卷积 k7 + GRN + 倒瓶颈） | `matcha/models/components/convnext_v2.py` · `+model.decoder.resnet_type=convnext_v2` |
 | **声码器注册表** | 声码器加载从 if/else 重构为装饰器注册表，新增声码器只需加文件；接入 HiFi-GAN（T2 / universal）与 BigVGAN | `matcha/vocoders/` |
 | **评估体系** | 零新依赖的 MCD（DTW + DCT-II）与 WER/CER；批量评估 CLI；训练中 `val_mcd` 曲线 | `matcha/utils/metrics.py` · `scripts/evaluate.py` |
-| **离线预处理缓存** | mel / 音素离线算一次存盘，训练只读缓存（每轮 3min → 1~2min） | `scripts/preprocess_dataset.py` |
+| **离线预处理缓存** | mel / 音素离线算一次存盘，训练只读缓存 | `scripts/preprocess_dataset.py` |
 | **文档** | 每日工作总结、改动清单、硬件 / 参数图解文档 | `docs/` |
 | **静态 Demo** | 多系统试听页与一键音频生成脚本 | `demo/` · `scripts/prepare_demo_audio.py` |
 
