@@ -123,7 +123,7 @@ python scripts/evaluate.py \
 
 - **ONNX 导出 / 推理**：`python3 -m matcha.onnx.export` / `python3 -m matcha.onnx.infer`（上游功能，已保留）
 - **从训练模型提取音素时长**：`matcha-tts-get-durations -i ljspeech.yaml -c <ckpt>`
-- **静态试听 Demo**：[`demo/`](demo/)，`scripts/prepare_demo_audio.py` 可一键重新生成全部音频
+- **静态试听 Demo**：在线试听 <https://captwd.github.io/demo/> ｜ 源码 [`demo/`](demo/)，`scripts/prepare_demo_audio.py` 可一键重新生成全部音频
 
 ## 文档与实验记录
 
