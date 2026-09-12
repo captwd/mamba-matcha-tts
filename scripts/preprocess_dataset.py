@@ -5,7 +5,7 @@
 训练时 dataloader 每轮都要对同样的数据重复做两件 CPU 重活：
   1. 读 wav -> 算梅尔频谱 -> 归一化        （本脚本存为 cache/mel/<样本名>.npy）
   2. 文本清洗 -> espeak 音素化 -> 转 ID    （本脚本存入 cache/phonemes.json）
-提前算好存盘后，训练时直接读缓存，预计每轮时间缩短 2/3 以上。
+提前算好存盘后，训练时直接读缓存，每轮大约快 30 秒。
 
 使用方法（在 Matcha-TTS 根目录运行）:
     python scripts/preprocess_dataset.py --data_config configs/data/ljspeech.yaml
