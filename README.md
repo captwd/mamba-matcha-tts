@@ -17,6 +17,51 @@
 
 </div>
 
+---
+
+## 本仓库改动（相对上游官方版）
+
+本仓库是 [shivammehta25/Matcha-TTS](https://github.com/shivammehta25/Matcha-TTS) 的改造版，围绕"**在 Matcha-TTS 上做骨干 / 算子替换实验**"展开。所有改动通过配置开关隔离，同一份代码可跑全部变体。
+
+| 模块 | 改动 | 入口 |
+|---|---|---|
+| **双向 Mamba2 骨干** | U-Net 每级的全局混合器（Self-Attention）可替换为双向 Mamba2 + LayerScale 零初始化；含 Mamba2 特殊初始化的保护逻辑 | `matcha/models/components/mamba_block.py` · `model/decoder=mamba` |
+| **ConvNeXt V2 局部算子** | 局部特征块（ResnetBlock1D）可替换为 ConvNeXt V2 单元（深度卷积 k7 + GRN + 倒瓶颈） | `matcha/models/components/convnext_v2.py` · `+model.decoder.resnet_type=convnext_v2` |
+| **声码器注册表** | 声码器加载从 if/else 重构为装饰器注册表，新增声码器只需加文件；接入 HiFi-GAN（T2 / universal）与 BigVGAN | `matcha/vocoders/` |
+| **评估体系** | 零新依赖的 MCD（DTW + DCT-II）与 WER/CER；批量评估 CLI；训练中 `val_mcd` 曲线 | `matcha/utils/metrics.py` · `scripts/evaluate.py` |
+| **离线预处理缓存** | mel / 音素离线算一次存盘，训练只读缓存（每轮 3min → 1~2min） | `scripts/preprocess_dataset.py` |
+| **文档** | 每日工作总结、改动清单、硬件 / 参数图解文档 | `docs/` |
+| **静态 Demo** | 多系统试听页与一键音频生成脚本 | `demo/` · `scripts/prepare_demo_audio.py` |
+
+### 快速上手
+
+```bash
+# 基线（原版 Transformer + U-Net）
+python matcha/train.py experiment=ljspeech_min_memory
+
+# 换全局混合器为双向 Mamba2（需 Linux/WSL + mamba-ssm，见 wsl_env/）
+python matcha/train.py experiment=ljspeech_min_memory model/decoder=mamba
+
+# 换局部算子为 ConvNeXt V2
+python matcha/train.py experiment=ljspeech_min_memory +model.decoder.resnet_type=convnext_v2
+
+# 批量评估（统一协议：HiFi-GAN T2 + Denoiser、val 100 句、ODE 10 步）
+python scripts/evaluate.py --checkpoint_path <ckpt> --filelist data/LJSpeech-1.1/val.txt \
+    --output_folder results/eval_xxx --vocoder hifigan_T2_v1 --steps 10
+```
+
+### 文档与实验记录
+
+- 改动清单：[`docs/modifications.md`](docs/modifications.md)
+- 工作总结：[`docs/2026-09-08_summary.md`](docs/2026-09-08_summary.md)（WSL 迁移 + Mamba 对照实验）、[`docs/2026-09-06_summary.md`](docs/2026-09-06_summary.md)（评估体系 + ConvNeXt V2 + LR 衰减）
+- 训练日志：[`docs/worklog.md`](docs/worklog.md)
+- 系列博客：<https://captwd.github.io/series/>
+- WSL / mamba 环境脚本：[`wsl_env/`](wsl_env/)
+
+> 仓库不含数据集（LJSpeech 需自行下载）与模型权重 / checkpoint；`results/` 仅保留逐句指标 CSV，评估音频由 `demo/` 提供试听样本。
+
+---
+
 > This is the official code implementation of 🍵 Matcha-TTS [ICASSP 2024].
 
 We propose 🍵 Matcha-TTS, a new approach to non-autoregressive neural TTS, that uses [conditional flow matching](https://arxiv.org/abs/2210.02747) (similar to [rectified flows](https://arxiv.org/abs/2209.03003)) to speed up ODE-based speech synthesis. Our method:
