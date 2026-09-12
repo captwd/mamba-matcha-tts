@@ -4,6 +4,7 @@ import os
 import numpy
 from Cython.Build import cythonize
 from setuptools import Extension, find_packages, setup
+from setuptools.command.build_ext import build_ext
 
 exts = [
     Extension(
@@ -11,6 +12,35 @@ exts = [
         sources=["matcha/utils/monotonic_align/core.pyx"],
     )
 ]
+
+
+class TolerantBuildExt(build_ext):
+    """宽容的扩展构建：机器缺少 MSVC 编译器时跳过 Cython 扩展而不中断安装。
+
+    跳过后运行时会自动使用 matcha/utils/monotonic_align/__init__.py 中
+    的纯 Python 回退实现，仅对齐计算稍慢，合成/训练结果完全一致。
+    """
+
+    def run(self):
+        try:
+            super().run()
+        except Exception as e:  # pylint: disable=broad-except
+            self._warn(e)
+
+    def build_extension(self, ext):
+        try:
+            super().build_extension(ext)
+        except Exception as e:  # pylint: disable=broad-except
+            self._warn(e)
+
+    @staticmethod
+    def _warn(error):
+        print("=" * 70)
+        print("WARNING: matcha.utils.monotonic_align.core 编译失败（通常因缺少 Microsoft C++ Build Tools）")
+        print(f"         原始错误: {error}")
+        print("         已跳过。运行时将自动使用纯 Python 回退实现，不影响使用。")
+        print("=" * 70)
+
 
 with open("README.md", encoding="utf-8") as readme_file:
     README = readme_file.read()
@@ -49,5 +79,6 @@ setup(
         ]
     },
     ext_modules=cythonize(exts, language_level=3),
+    cmdclass={"build_ext": TolerantBuildExt},
     python_requires=">=3.9.0",
 )

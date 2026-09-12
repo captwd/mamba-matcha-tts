@@ -1,3 +1,12 @@
+# -*- coding: utf-8 -*-
+"""
+【中文说明】数字文本规范化（Number Normalization，源自 keithito/tacotron）
+把文本中的各种数字表达转成可读的英文单词，供 cleaners.py 调用：
+- 逗号分隔数字 "1,000" -> "one thousand"
+- 小数 "3.14" -> "three point one four"
+- 货币 "$10" / "£5" -> "ten dollars" / "five pounds"
+- 序数词 "1st" -> "first"、年份 "1990" -> "nineteen ninety" 等
+"""
 """ from https://github.com/keithito/tacotron """
 
 import re

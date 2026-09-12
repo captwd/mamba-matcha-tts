@@ -1,3 +1,4 @@
+# 【中文说明】根据 Hydra 配置实例化 Lightning 的 callbacks（回调）和 loggers（日志器）
 from typing import List
 
 import hydra

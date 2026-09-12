@@ -1,5 +1,18 @@
 # @package _global_
 
+# ==============================================================================
+# 【中文说明】训练总配置（Hydra 主配置文件）
+# 本文件是 python matcha/train.py 的默认配置入口，按 defaults 顺序组合各子配置：
+#   - data:       数据模块配置（数据集文件列表、音频参数等），默认 ljspeech
+#   - model:      模型配置（Matcha-TTS 结构、优化器等）
+#   - callbacks:  训练回调（模型保存、早停、进度条等）
+#   - logger:     日志器（tensorboard / wandb / csv 等）
+#   - trainer:    PyTorch Lightning Trainer 参数（epochs、精度、设备等）
+#   - paths:      项目路径配置
+#   - experiment: 实验配置（针对具体数据集/模型的最佳超参数组合）
+# 命令行覆盖示例：python matcha/train.py experiment=matcha_vctk trainer.max_epochs=200
+# ==============================================================================
+
 # specify here default configuration
 # order of defaults determines the order in which configs override each other
 defaults:

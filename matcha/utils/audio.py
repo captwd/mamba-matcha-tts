@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+音频工具（Audio Utilities）
+============================
+提供 wav 读取、动态范围压缩、梅尔频谱提取(mel_spectrogram)等音频处理函数。
+训练时用它把音频转成梅尔频谱作为模型目标；推理时的输出也需要与这里一致的频谱参数。
+"""
 import numpy as np
 import torch
 import torch.utils.data

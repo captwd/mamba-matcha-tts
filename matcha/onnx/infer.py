@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+"""
+ONNX 推理脚本
+================
+使用 onnxruntime 加载导出的 ONNX 模型进行语音合成（不依赖 PyTorch），
+适合轻量化部署场景。用法与 matcha/cli.py 类似：
+    python -m matcha.onnx.infer --text "Hello world" --output_folder ./output
+"""
 import argparse
 import os
 import warnings

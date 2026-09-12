@@ -1,0 +1,6 @@
+utt_id,mcd_dtw,wer,cer,gt_wer,gen_len_frames,ref_len_frames
+LJ003-0150,85.632,nan,nan,nan,566,651
+LJ028-0353,41.400,nan,nan,nan,781,755
+LJ049-0174,47.356,nan,nan,nan,704,672
+LJ050-0184,41.904,nan,nan,nan,297,283
+LJ017-0065,38.821,nan,nan,nan,516,475

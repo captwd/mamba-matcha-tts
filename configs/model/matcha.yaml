@@ -4,6 +4,7 @@ defaults:
   - decoder: default.yaml
   - cfm: default.yaml
   - optimizer: adam.yaml
+  - scheduler: null  # 【中文说明】默认无调度器（与历史 checkpoint 兼容）；可用 model/scheduler=multistep_late 开启 LR 衰减实验
 
 _target_: matcha.models.matcha_tts.MatchaTTS
 n_vocab: 178

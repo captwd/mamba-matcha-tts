@@ -1,3 +1,9 @@
+# -*- coding: utf-8 -*-
+"""
+【中文说明】HiFi-GAN 训练用数据集（MelDataset）
+仅在训练/微调声码器时使用：读取 wav 音频 -> 转梅尔频谱，配合 FileDataset 做 DataLoader。
+纯推理阶段（Matcha-TTS 合成语音）不会用到这个文件。
+"""
 """ from https://github.com/jik876/hifi-gan """
 
 import math

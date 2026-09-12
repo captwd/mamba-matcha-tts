@@ -1,0 +1,21 @@
+defaults:
+  - default.yaml
+  - _self_
+
+# 【中文说明】Mamba 全局混合器变体：把 Decoder down/mid/up 里的 Transformer 子块
+# （diffusers BasicTransformerBlock 自注意力）换成双向 Mamba2 块（mamba_block.py），
+# U-Net 骨架 / Resnet 局部块 / 时间条件注入全部不变。
+# 与局部算子开关 resnet_type（default=conv / convnext_v2）正交，可叠加使用。
+#
+# 用法（本仓库 hydra 结构下，嵌套组覆盖用"整组替换"或"改键"均可）：
+#   python matcha/train.py experiment=<你的实验> model/decoder=mamba
+#   # 或等价（down_block_type 已在 default.yaml 中定义，无需 + 号）：
+#   python matcha/train.py experiment=<你的实验> model/decoder.down_block_type=mamba
+# 只想小步验证时可仅换中间块：
+#   python matcha/train.py experiment=<你的实验> model/decoder.mid_block_type=mamba
+#
+# 注意：mamba 分支为 CUDA-only（Windows 不可构建），且与旧 Transformer checkpoint
+# 权重不互载（参数名不同），需从头训练。
+down_block_type: mamba
+mid_block_type: mamba
+up_block_type: mamba

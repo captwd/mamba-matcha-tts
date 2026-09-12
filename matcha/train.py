@@ -1,11 +1,31 @@
+# -*- coding: utf-8 -*-
+"""
+训练入口脚本（Training Entry Point）
+=====================================
+这是模型训练的主程序，基于 Hydra 配置框架 + PyTorch Lightning 训练框架。
+
+主要功能：
+1. 读取 configs/ 目录下的 YAML 配置文件（默认 configs/train.yaml）
+2. 根据配置自动实例化：数据模块(datamodule)、模型(model)、回调(callbacks)、日志器(logger)、训练器(trainer)
+3. 执行训练 trainer.fit()，训练结束后可选执行测试 trainer.test()
+
+使用方法（命令行）：
+    python matcha/train.py experiment=name_of_experiment
+    可通过 Hydra 语法覆盖任意配置项，例如：
+    python matcha/train.py experiment=matcha_ljspeech trainer.max_epochs=100
+"""
 from typing import Any, Dict, List, Optional, Tuple
 
 import hydra
 import lightning as L
 import rootutils
+import torch
 from lightning import Callback, LightningDataModule, LightningModule, Trainer
 from lightning.pytorch.loggers import Logger
 from omegaconf import DictConfig
+
+# 开启 TF32：让 RTX 系显卡用 Tensor Core 加速 float32 矩阵运算，精度几乎无损、速度明显提升
+torch.set_float32_matmul_precision("high")
 
 from matcha import utils
 

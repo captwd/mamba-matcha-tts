@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """ from https://github.com/keithito/tacotron
 
 Cleaners are transformations that run over the input text at both training and eval time.
@@ -9,6 +10,15 @@ hyperparameter. Some cleaners are English-specific. You'll typically want to use
      the Unidecode library (https://pypi.python.org/pypi/Unidecode)
   3. "basic_cleaners" if you do not want to transliterate (in this case, you should also update
      the symbols in symbols.py to match your data).
+
+【中文说明】文本清洗函数集合
+在训练和推理时对输入文本做规范化（normalization），例如：
+- expand_abbreviations：展开缩写（如 "Mr." -> "mister"）
+- collapse_whitespace：压缩多余空白
+- convert_to_ascii：非 ASCII 字符转写（Unidecode）
+- numbers_to_words：把数字转成英文单词（调用 numbers.py）
+- english_cleaners2：以上流程的组合，是 Matcha-TTS 默认使用的清洗器
+修改清洗逻辑后必须与 symbols.py 中的符号表保持一致。
 """
 
 import logging

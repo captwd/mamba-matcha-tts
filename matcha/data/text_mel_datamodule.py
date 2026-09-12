@@ -1,4 +1,18 @@
+# -*- coding: utf-8 -*-
+"""
+文本-梅尔频谱 数据模块（LightningDataModule，仅训练时使用）
+================================================================
+负责为训练/验证准备数据集和 DataLoader：
+1. TextMelDataModule：Lightning 数据模块入口，按配置创建训练集/验证集及其 DataLoader
+2. TextMelDataset：读取文件列表(filelist，格式为 "音频路径|文本|说话人ID")，
+   对文本做清洗+转音素ID、对音频提取梅尔频谱并归一化
+3. TextMelBatchCollate：把变长的样本拼成一个 batch（padding + 掩码）
+注意：纯推理（app.py / cli.py）不依赖本模块，只有 train.py 训练时需要。
+"""
+import json
+import math
 import random
+import warnings
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -91,22 +105,37 @@ class TextMelDataModule(LightningDataModule):
         )
 
     def train_dataloader(self):
+        # 【中文说明】离线缓存生效时，worker 只需读 .npy 文件，2 个就足够喂饱 GPU；
+        # 每个 worker 进程常驻约 800MB 内存，少开进程可大幅降低内存占用
+        workers = self.hparams.num_workers
+        if getattr(self.trainset, "_cache_ok", False):
+            workers = min(workers, 2)
         return DataLoader(
             dataset=self.trainset,
             batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
+            num_workers=workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=True,
+            # Windows 上每轮重启工作进程开销很大：持久化 + 预取 3 批，让 GPU 少等数据
+            persistent_workers=workers > 0,
+            prefetch_factor=3 if workers > 0 else None,
             collate_fn=TextMelBatchCollate(self.hparams.n_spks),
         )
 
     def val_dataloader(self):
+        # 【中文说明】验证集很小（ljspeech 仅 100 条），缓存生效时主进程直接加载，
+        # 不再额外常驻 4 个 worker 进程
+        workers = self.hparams.num_workers
+        if getattr(self.validset, "_cache_ok", False):
+            workers = 0
         return DataLoader(
             dataset=self.validset,
             batch_size=self.hparams.batch_size,
-            num_workers=self.hparams.num_workers,
+            num_workers=workers,
             pin_memory=self.hparams.pin_memory,
             shuffle=False,
+            persistent_workers=workers > 0,
+            prefetch_factor=3 if workers > 0 else None,
             collate_fn=TextMelBatchCollate(self.hparams.n_spks),
         )
 
@@ -161,6 +190,50 @@ class TextMelDataset(torch.utils.data.Dataset):
         random.seed(seed)
         random.shuffle(self.filepaths_and_text)
 
+        # 【中文说明】离线预处理缓存（由 scripts/preprocess_dataset.py 生成）
+        # 命中缓存时直接读取梅尔谱 .npy 和音素序列，跳过 wav 解码/FFT/espeak，大幅提速
+        self.cache_dir = Path(filelist_path).resolve().parent / "cache"
+        self._cache_ok, self.phoneme_cache = self._load_preprocess_cache()
+
+    def _load_preprocess_cache(self):
+        """加载离线预处理缓存；校验 meta.json 参数与当前配置一致才启用，防止配置改了还用旧缓存"""
+        meta_path = self.cache_dir / "meta.json"
+        ph_path = self.cache_dir / "phonemes.json"
+        if not (meta_path.exists() and ph_path.exists()):
+            return False, None
+
+        with open(meta_path, encoding="utf-8") as f:
+            meta = json.load(f)
+        expected = {
+            "n_fft": self.n_fft,
+            "n_feats": self.n_mels,
+            "sample_rate": self.sample_rate,
+            "hop_length": self.hop_length,
+            "win_length": self.win_length,
+            "f_min": self.f_min,
+            "f_max": self.f_max,
+            "mel_mean": self.data_parameters["mel_mean"],
+            "mel_std": self.data_parameters["mel_std"],
+            "cleaners": self.cleaners,
+            "add_blank": self.add_blank,
+        }
+        for key, value in expected.items():
+            actual = meta.get(key)
+            matched = (
+                math.isclose(float(actual), float(value), rel_tol=1e-6, abs_tol=1e-6)
+                if isinstance(value, (int, float)) and not isinstance(value, bool)
+                else actual == value
+            )
+            if not matched:
+                warnings.warn(
+                    f"预处理缓存参数与当前配置不一致({key}: 缓存={actual}, 配置={value})，已禁用缓存，将现场计算",
+                    UserWarning,
+                )
+                return False, None
+
+        with open(ph_path, encoding="utf-8") as f:
+            return True, json.load(f)
+
     def get_datapoint(self, filepath_and_text):
         if self.n_spks > 1:
             filepath, spk, text = (
@@ -172,7 +245,14 @@ class TextMelDataset(torch.utils.data.Dataset):
             filepath, text = filepath_and_text[0], filepath_and_text[1]
             spk = None
 
-        text, cleaned_text = self.get_text(text, add_blank=self.add_blank)
+        # 【中文说明】优先读离线缓存的音素序列，未命中则现场计算（原逻辑）
+        utt_id = Path(filepath).stem
+        if self.phoneme_cache is not None and utt_id in self.phoneme_cache:
+            cached = self.phoneme_cache[utt_id]
+            text, cleaned_text = torch.IntTensor(cached["x"]), cached["text"]
+        else:
+            text, cleaned_text = self.get_text(text, add_blank=self.add_blank)
+
         mel = self.get_mel(filepath)
 
         durations = self.get_durations(filepath, text) if self.load_durations else None
@@ -197,6 +277,10 @@ class TextMelDataset(torch.utils.data.Dataset):
         return durs
 
     def get_mel(self, filepath):
+        # 【中文说明】优先读离线缓存的梅尔谱，未命中则现场计算
+        cache_file = self.cache_dir / "mel" / f"{Path(filepath).stem}.npy"
+        if self._cache_ok and cache_file.exists():
+            return torch.from_numpy(np.load(cache_file))
         audio, sr = ta.load(filepath)
         assert sr == self.sample_rate
         mel = mel_spectrogram(

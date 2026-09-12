@@ -1,6 +1,27 @@
+# -*- coding: utf-8 -*-
+"""
+命令行推理脚本（Command Line Inference）
+=====================================
+在终端中直接用文本合成语音，是 app.py 网页版背后的核心推理逻辑来源。
+
+主要功能：
+1. 解析命令行参数（模型、声码器、说话人 ID、ODE 步数、语速、温度等）
+2. 自动检查/下载预训练模型 checkpoint 到用户数据目录
+3. 文本 -> 音素序列 -> 梅尔频谱 -> 波形音频，支持单条/批量推理
+4. 保存合成结果（.wav 音频、.png 频谱图、.npy 梅尔数据）并统计 RTF（实时率）
+
+使用方法：
+    matcha "要合成的英文文本" --spk 0 --temperature 0.667 --steps 10
+    matcha --file text.txt --batched --vocoder hifigan_univ_v1
+    matcha "text" --checkpoint_path my.ckpt --vocoder bigvgan_base_22khz_80band --cleaner english_cleaners2
+
+【中文说明】声码器通过注册表（matcha/vocoders/）分发，--vocoder 选项与 --cleaner
+必须分别匹配声码器训练规格和声学模型训练时的文本前端。
+"""
 import argparse
 import datetime as dt
 import os
+import sys
 import warnings
 from pathlib import Path
 
@@ -9,13 +30,10 @@ import numpy as np
 import soundfile as sf
 import torch
 
-from matcha.hifigan.config import v1
-from matcha.hifigan.denoiser import Denoiser
-from matcha.hifigan.env import AttrDict
-from matcha.hifigan.models import Generator as HiFiGAN
 from matcha.models.matcha_tts import MatchaTTS
 from matcha.text import sequence_to_text, text_to_sequence
 from matcha.utils.utils import assert_model_downloaded, get_user_data_dir, intersperse
+from matcha import vocoders as vocoder_registry
 
 MATCHA_URLS = {
     "matcha_ljspeech": "https://github.com/shivammehta25/Matcha-TTS-checkpoints/releases/download/v1.0/matcha_ljspeech.ckpt",
@@ -33,6 +51,10 @@ MULTISPEAKER_MODEL = {
 
 SINGLESPEAKER_MODEL = {"matcha_ljspeech": {"vocoder": "hifigan_T2_v1", "speaking_rate": 0.95, "spk": None}}
 
+# 【中文说明】BigVGAN 声码器（matcha/vocoders/bigvgan.py 适配器）
+# 权重从 HuggingFace 自动下载并缓存，无需 GitHub 直链，故不出现在 VOCODER_URLS 中
+BIGVGAN_VOCODER_NAME = vocoder_registry.BIGVGAN_BASE_22KHZ_80BAND
+
 
 def plot_spectrogram_to_numpy(spectrogram, filename):
     fig, ax = plt.subplots(figsize=(12, 3))
@@ -45,10 +67,15 @@ def plot_spectrogram_to_numpy(spectrogram, filename):
     plt.savefig(filename)
 
 
-def process_text(i: int, text: str, device: torch.device):
+def process_text(i: int, text: str, device: torch.device, cleaner_names=("english_cleaners2",)):
+    """文本 -> 音素张量。
+
+    【中文说明】cleaner 必须与训练时数据配置（configs/data/*.yaml 的 cleaners 字段）一致，
+    否则音素分布错位、合成质量下降。默认 english_cleaners2 对应 LJSpeech 系配置。
+    """
     print(f"[{i}] - Input text: {text}")
     x = torch.tensor(
-        intersperse(text_to_sequence(text, ["english_cleaners2"])[0], 0),
+        intersperse(text_to_sequence(text, list(cleaner_names))[0], 0),
         dtype=torch.long,
         device=device,
     )[None]
@@ -70,37 +97,30 @@ def get_texts(args):
 
 def assert_required_models_available(args):
     save_dir = get_user_data_dir()
-    if not hasattr(args, "checkpoint_path") and args.checkpoint_path is None:
-        model_path = args.checkpoint_path
+    # 【中文说明】修复官方逻辑 bug：原代码无论是否传了 --checkpoint_path，
+    # 都会强制下载官方预训练模型（白白浪费流量）。现在指定了自定义 checkpoint 就直接用它。
+    if args.checkpoint_path is not None:
+        model_path = Path(args.checkpoint_path)
     else:
         model_path = save_dir / f"{args.model}.ckpt"
         assert_model_downloaded(model_path, MATCHA_URLS[args.model])
-
-    vocoder_path = save_dir / f"{args.vocoder}"
-    assert_model_downloaded(vocoder_path, VOCODER_URLS[args.vocoder])
+    # 【中文说明】BigVGAN 的权重在 HuggingFace 缓存里（load_bigvgan 自行处理），跳过本地文件检查
+    if args.vocoder == BIGVGAN_VOCODER_NAME:
+        vocoder_path = None
+    else:
+        vocoder_path = save_dir / f"{args.vocoder}"
+        assert_model_downloaded(vocoder_path, VOCODER_URLS[args.vocoder])
     return {"matcha": model_path, "vocoder": vocoder_path}
 
 
-def load_hifigan(checkpoint_path, device):
-    h = AttrDict(v1)
-    hifigan = HiFiGAN(h).to(device)
-    hifigan.load_state_dict(torch.load(checkpoint_path, map_location=device)["generator"])
-    _ = hifigan.eval()
-    hifigan.remove_weight_norm()
-    return hifigan
-
-
 def load_vocoder(vocoder_name, checkpoint_path, device):
-    print(f"[!] Loading {vocoder_name}!")
-    vocoder = None
-    if vocoder_name in ("hifigan_T2_v1", "hifigan_univ_v1"):
-        vocoder = load_hifigan(checkpoint_path, device)
-    else:
-        raise NotImplementedError(
-            f"Vocoder {vocoder_name} not implemented! define a load_<<vocoder_name>> method for it"
-        )
+    """【中文说明】声码器加载统一入口：按名字从注册表分发（matcha/vocoders/）。
 
-    denoiser = Denoiser(vocoder, mode="zeros")
+    各声码器的加载逻辑在 matcha/vocoders/<name>.py 中，用 @register_vocoder 注册，
+    这里不再维护 if/else 分支；新增声码器只需加适配器文件并在注册表包中 import。
+    """
+    print(f"[!] Loading {vocoder_name}!")
+    vocoder, denoiser = vocoder_registry.load_vocoder(vocoder_name, checkpoint_path, device)
     print(f"[+] {vocoder_name} loaded!")
     return vocoder, denoiser
 
@@ -147,7 +167,11 @@ def validate_args(args):
             args = validate_args_for_multispeaker_model(args)
     else:
         # When using a custom model
-        if args.vocoder != "hifigan_univ_v1":
+        # 【中文说明】自定义模型未指定声码器时默认 hifigan_T2_v1（LJ Speech 专用），避免后续 KeyError
+        if args.vocoder is None:
+            args.vocoder = "hifigan_T2_v1"
+        # 【中文说明】BigVGAN 是通用声码器，不会有 LJ Speech 专属警告
+        if args.vocoder not in ("hifigan_univ_v1", BIGVGAN_VOCODER_NAME):
             warn_ = "[-] Using custom model checkpoint! I would suggest passing --vocoder hifigan_univ_v1, unless the custom model is trained on LJ Speech."
             warnings.warn(warn_, UserWarning)
         if args.speaking_rate is None:
@@ -206,6 +230,12 @@ def validate_args_for_single_speaker_model(args):
 
 @torch.inference_mode()
 def cli():
+    # 【中文说明】中文 Windows 控制台默认 GBK 编码，打印 emoji（🍵）会抛 UnicodeEncodeError；
+    # 改为"替换容错"：不可编码字符降级为 ?，中文正常输出
+    for stream in (sys.stdout, sys.stderr):
+        if stream is not None and hasattr(stream, "reconfigure"):
+            stream.reconfigure(errors="replace")
+
     parser = argparse.ArgumentParser(
         description=" 🍵 Matcha-TTS: A fast TTS architecture with conditional flow matching"
     )
@@ -229,7 +259,14 @@ def cli():
         type=str,
         default=None,
         help="Vocoder to use (default: will use the one suggested with the pretrained model))",
-        choices=VOCODER_URLS.keys(),
+        choices=sorted(vocoder_registry.VOCODER_REGISTRY.keys()),  # 【中文说明】选项自动来自注册表
+    )
+    parser.add_argument(
+        "--cleaner",
+        type=str,
+        default="english_cleaners2",
+        # 【中文说明】必须与训练数据配置里的 cleaners 一致（如 piper 系模型用 english_cleaners_piper）
+        help="Text cleaner used for phonemisation; MUST match the one used at training (default: english_cleaners2)",
     )
     parser.add_argument("--text", type=str, default=None, help="Text to synthesize")
     parser.add_argument("--file", type=str, default=None, help="Text file to synthesize")
@@ -316,7 +353,7 @@ def batched_collate_fn(batch):
 def batched_synthesis(args, device, model, vocoder, denoiser, texts, spk):
     total_rtf = []
     total_rtf_w = []
-    processed_text = [process_text(i, text, "cpu") for i, text in enumerate(texts)]
+    processed_text = [process_text(i, text, "cpu", (args.cleaner,)) for i, text in enumerate(texts)]
     dataloader = torch.utils.data.DataLoader(
         BatchedSynthesisDataset(processed_text),
         batch_size=args.batch_size,
@@ -365,7 +402,7 @@ def unbatched_synthesis(args, device, model, vocoder, denoiser, texts, spk):
 
         print("".join(["="] * 100))
         text = text.strip()
-        text_processed = process_text(i, text, device)
+        text_processed = process_text(i, text, device, (args.cleaner,))
 
         print(f"[🍵] Whisking Matcha-T(ea)TS for: {i}")
         start_t = dt.datetime.now()

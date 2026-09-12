@@ -1,3 +1,17 @@
+# -*- coding: utf-8 -*-
+"""
+Gradio 网页版演示界面（Web Demo UI）
+=====================================
+启动一个浏览器网页，让用户在图形界面中输入文字并合成语音。
+
+主要功能：
+1. 自动下载并加载预训练模型（单说话人 LJSpeech / 多说话人 VCTK）
+2. 提供文本输入框、说话人选择滑块、合成参数（ODE 步数、语速、温度）调节
+3. 展示音素化文本、梅尔频谱图，并播放/下载合成音频
+
+使用方法：
+    python matcha/app.py   然后在浏览器打开输出的本地地址（会生成一个公网分享链接）
+"""
 import tempfile
 from argparse import Namespace
 from pathlib import Path

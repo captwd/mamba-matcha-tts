@@ -1,3 +1,5 @@
+# -*- coding: utf-8 -*-
+"""【中文说明】HiFi-GAN 的辅助工具函数：卷积 padding 计算、权重初始化、频谱图绘图等。"""
 """ from https://github.com/jik876/hifi-gan """
 
 import glob

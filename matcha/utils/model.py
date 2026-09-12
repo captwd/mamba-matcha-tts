@@ -1,3 +1,10 @@
+# -*- coding: utf-8 -*-
+"""
+模型辅助函数（源自 Glow-TTS）
+================================
+sequence_mask：序列长度掩码；fix_len_compatibility：长度对齐；generate_path：由时长构建对齐路径；
+normalize/denormalize：梅尔频谱归一化与反归一化；duration_loss：时长预测损失。
+"""
 """ from https://github.com/jaywalnut310/glow-tts """
 
 import numpy as np

@@ -1,3 +1,13 @@
+# -*- coding: utf-8 -*-
+"""
+ONNX 模型导出脚本
+====================
+把训练好的 Matcha-TTS 模型和 HiFi-GAN 声码器导出为 ONNX 格式，
+以便部署到没有 PyTorch 环境的设备（如手机、嵌入式设备、其他推理框架）。
+
+使用方法：
+    python -m matcha.onnx.export --vocoder hifigan_univ_v1 --checkpoint_path <你的ckpt路径> --output <输出目录>
+"""
 import argparse
 import random
 from pathlib import Path

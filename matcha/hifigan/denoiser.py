@@ -1,5 +1,12 @@
 # Code modified from Rafael Valle's implementation https://github.com/NVIDIA/waveglow/blob/5bc2a53e20b3b533362f974cfa1ea0267ae1c2b1/denoiser.py
 
+# -*- coding: utf-8 -*-
+"""
+【中文说明】去噪器（Denoiser，源自 NVIDIA WaveGlow 实现）
+用于消除 HiFi-GAN 生成音频中的底噪/伪影：利用声码器的偏置（对全零/全1输入的输出），
+在频域中做反相消除，让合成音质更干净。strength 参数控制去噪强度。
+"""
+
 """Waveglow style denoiser can be used to remove the artifacts from the HiFiGAN generated audio."""
 import torch
 

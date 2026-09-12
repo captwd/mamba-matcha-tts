@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>训练时 CPU / 内存 / 磁盘 在干什么 · 图解</title>
+<style>
+  :root { --green:#1e7a55; --green-d:#14573c; --green-l:#e8f4ee; --ink:#222; --muted:#666; --line:#e3e8e5; --red:#c0392b; --blue:#2563ab; --amber:#b7791f; --gray:#64748b; }
+  * { box-sizing:border-box; }
+  body { margin:0; color:var(--ink); font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif; line-height:1.7; }
+  .wrap { max-width:1000px; margin:0 auto; padding:24px 28px 90px; }
+  h1 { font-size:26px; } h1 .accent{ color:var(--green); }
+  h2 { font-size:20px; margin:52px 0 12px; padding-bottom:8px; border-bottom:2px solid var(--green); }
+  p, li { font-size:14.5px; }
+  code { background:#f3f6f4; border:1px solid var(--line); border-radius:4px; padding:1px 6px; font-size:13px; font-family:Consolas,monospace; color:var(--green-d); }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; margin:10px 0; }
+  th,td { border:1px solid var(--line); padding:7px 10px; text-align:left; }
+  thead th { background:var(--green); color:#fff; }
+  tbody tr:nth-child(even){ background:#f7fbf9; }
+  .note { background:var(--green-l); border-left:4px solid var(--green); padding:10px 14px; border-radius:0 8px 8px 0; font-size:13.5px; margin:14px 0; }
+  .warn { background:#fdf3e7; border-left:4px solid var(--amber); padding:10px 14px; border-radius:0 8px 8px 0; font-size:13.5px; margin:14px 0; }
+  figure { margin:18px 0; text-align:center; }
+  figcaption { font-size:12.5px; color:var(--muted); margin-top:6px; }
+  svg { max-width:100%; height:auto; font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+  .term { color:var(--blue); font-weight:600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>训练时 <span class="accent">CPU / 内存 / 磁盘</span> 都在干什么</h1>
+<p>对应本机实测画面：CPU 33% @3.19GHz（R9 8940HX）· 内存 12.9/15.2GB（85%）· 磁盘 2% · GPU 利用率 46%。全部解释映射到本项目的真实流水线（离线预处理缓存 + num_workers=2 + pinned memory + 每 epoch 存 258MB checkpoint）。</p>
+
+<!-- ============ 1. 数据通路总图 ============ -->
+<h2>1. 一条数据的完整旅程</h2>
+<figure>
+<svg viewBox="0 0 940 430" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1e7a55"/>
+    </marker>
+  </defs>
+  <!-- 磁盘 -->
+  <rect x="20" y="40" width="200" height="150" rx="10" fill="#fff" stroke="#64748b" stroke-width="2"/>
+  <text x="120" y="66" text-anchor="middle" font-size="14" font-weight="bold" fill="#475569">磁盘（NVMe，2%）</text>
+  <g font-size="11.5" fill="#666">
+    <text x="35" y="92">· 离线缓存 .npy/phonemes.json</text>
+    <text x="35" y="112">  （首轮读一次，之后进页缓存）</text>
+    <text x="35" y="140" fill="#b7791f">· 每 epoch 末：写 258MB ckpt</text>
+    <text x="35" y="158" fill="#b7791f">  + tensorboard 事件追加</text>
+  </g>
+  <!-- 内存 -->
+  <rect x="330" y="40" width="280" height="220" rx="10" fill="#e8f4ee" stroke="#1e7a55" stroke-width="2"/>
+  <text x="470" y="66" text-anchor="middle" font-size="14" font-weight="bold" fill="#14573c">内存（12.9 / 15.2GB）</text>
+  <g font-size="11.5">
+    <rect x="350" y="82" width="240" height="30" rx="6" fill="#fff" stroke="#2563ab"/>
+    <text x="470" y="101" text-anchor="middle">页缓存（数据集副本，磁盘 2% 的原因）</text>
+    <rect x="350" y="120" width="115" height="30" rx="6" fill="#fff" stroke="#1e7a55"/>
+    <text x="407" y="139" text-anchor="middle">worker ×2 各~780MB</text>
+    <rect x="475" y="120" width="115" height="30" rx="6" fill="#fff" stroke="#1e7a55"/>
+    <text x="532" y="139" text-anchor="middle">主进程 python+torch</text>
+    <rect x="350" y="158" width="115" height="30" rx="6" fill="#fff" stroke="#2563ab"/>
+    <text x="407" y="177" text-anchor="middle">pinned 锁页缓冲</text>
+    <rect x="475" y="158" width="115" height="30" rx="6" fill="#fce8e6" stroke="#c0392b"/>
+    <text x="532" y="177" text-anchor="middle">（共享显存溢出区·已消除）</text>
+    <text x="470" y="215" text-anchor="middle" font-size="11" fill="#c0392b">85% = 警戒位：再往里塞任何东西都会挤压页缓存</text>
+    <text x="470" y="233" text-anchor="middle" font-size="11" fill="#c0392b">→ 触发换页 → 反过来拖慢 worker 与 GPU 喂数</text>
+  </g>
+  <!-- CPU -->
+  <rect x="660" y="40" width="260" height="150" rx="10" fill="#fff" stroke="#1e7a55" stroke-width="2"/>
+  <text x="790" y="66" text-anchor="middle" font-size="14" font-weight="bold" fill="#14573c">CPU（33%，16 线程）</text>
+  <g font-size="11.5" fill="#666">
+    <text x="675" y="92">· 主进程（单线程 GIL）：训练循环、</text>
+    <text x="675" y="110">  组装参数、发射 CUDA kernel、日志</text>
+    <text x="675" y="134">· worker ×2：读缓存→collate 补零→</text>
+    <text x="675" y="152">  序列化经共享内存传给主进程</text>
+    <text x="675" y="176" fill="#b7791f">· 每 5 epoch：画图 + DTW-MCD 尖峰</text>
+  </g>
+  <!-- GPU -->
+  <rect x="660" y="240" width="260" height="110" rx="10" fill="#1e7a55"/>
+  <text x="790" y="266" text-anchor="middle" font-size="14" font-weight="bold" fill="#fff">GPU（46%，7.6GB）</text>
+  <g font-size="11.5" fill="#d8ede4">
+    <text x="675" y="290">· 前向/反向/优化器步（真实计算）</text>
+    <text x="675" y="310">· 常驻 ~270MiB（参数+梯度+Adam）</text>
+    <text x="675" y="330">· 其余时间在等主进程喂数据</text>
+  </g>
+  <!-- flows -->
+  <g stroke="#1e7a55" stroke-width="2" fill="none" marker-end="url(#ar2)">
+    <line x1="120" y1="192" x2="120" y2="230" stroke="#64748b"/>
+    <line x1="230" y1="120" x2="327" y2="120" stroke-dasharray="5 4"/>
+    <line x1="612" y1="135" x2="657" y2="100"/>
+    <line x1="790" y1="192" x2="790" y2="237"/>
+  </g>
+  <text x="128" y="222" font-size="11" fill="#475569">缺页时才读盘</text>
+  <text x="278" y="112" font-size="11" fill="#666">worker 启动时</text>
+  <text x="636" y="112" font-size="11" fill="#666">batch</text>
+  <text x="800" y="220" font-size="11" fill="#666">每步 H2D</text>
+</svg>
+<figcaption>图 1 · 数据旅程：磁盘（一次）→ 页缓存 → worker 内存 → 共享内存队列 → 主进程 pinned 缓冲 → 显存。能量在内存里循环，磁盘基本退休</figcaption>
+</figure>
+
+<!-- ============ 2. CPU ============ -->
+<h2>2. CPU 33%：在当"指挥"而不是"工人"</h2>
+<table>
+  <thead><tr><th>角色</th><th>具体工作</th><th>占比特征</th></tr></thead>
+  <tbody>
+    <tr><td><b>主进程</b>（GIL 单线程）</td><td>① Python 训练循环调度（Lightning hook 链）② 把 <code>loss.backward()</code> 拆成几百个 kernel 并<b>发射</b>进 CUDA 流 ③ 日志/进度条 ④ 每 step 与 GPU 同步点</td><td>一个核心常驻忙——你看到的 3.19GHz 多半就是它</td></tr>
+    <tr><td><b>dataloader worker ×2</b></td><td>读页缓存里的 <code>.npy</code> → <code>collate</code>（变长序列 pad 成 batch）→ pickle 序列化 → 经共享内存队列交主进程。<b>预取</b>下一批（prefetch_factor=3）</td><td>两个核心间歇忙，与主进程重叠工作（persistent_workers 常驻，省掉每 epoch 重启的 ~秒级开销）</td></tr>
+    <tr><td><b>验证期尖峰</b>（每 5 epoch）</td><td>matplotlib 画梅尔图（CPU 光栅化）、DTW-MCD 的 numpy 循环、tensorboard 写盘</td><td>短时冲高，别误判成泄漏</td></tr>
+  </tbody>
+</table>
+<div class="note">🔹 <b>为什么 33% 就够不了 46% 的 GPU</b>：GPU 每步要等"主进程发射完 + 数据到位"。串行依赖链上任何一环等待，GPU 就空转。33% CPU 配 46% GPU 说明两边的<b>等待时间</b>是同一份——瓶颈是链路不是某个设备的算力。</div>
+
+<!-- ============ 3. 内存 ============ -->
+<h2>3. 内存 12.9/15.2GB（85%）：四类住户 + 一个危险的舞伴</h2>
+<table>
+  <thead><tr><th>住户</th><th>大小（实测/估）</th><th>性质</th></tr></thead>
+  <tbody>
+    <tr><td>主进程 python.exe</td><td>~2-3GB</td><td>torch 库本体 + CUDA 主机端 + 缓存的对象；私有提交内存</td></tr>
+    <tr><td>dataloader worker ×2</td><td>~1.6GB（各 780MB）</td><td>每个 worker 都要 import torch + 持有数据集引用；<b>fork/spawn 复制的那份"底座"</b></td></tr>
+    <tr><td><span class="term">页缓存</span>（standby list）</td><td>弹性，可达数 GB</td><td>13000 个 .npy + json 的磁盘副本；<b>好内存</b>——需要时可立即让位</td></tr>
+    <tr><td>其他应用（浏览器/IDE/OS）</td><td>视情况数 GB</td><td>浏览器硬件加速还占显存，双重挤压</td></tr>
+  </tbody>
+</table>
+<div class="warn">🔹 <b>85% 为什么是警戒位</b>：之前 batch64 时"共享 GPU 显存"就是把溢出的 ~1GB 塞进这份内存——85% + 1GB 会顶到换页阈值，系统开始把页缓存放出去换空间，<b>连累 worker 读数据变慢</b>，形成 GPU 等数据 → CPU 等内存的连锁。换 batch32+累积后两个问题一起消失，这就是"一石二鸟"的机制解释。</div>
+<div class="note">🔹 <b>自查方法</b>：任务管理器 → 详细信息 → 按内存排序，能看到多个 <code>python.exe</code>（主 + 2 worker）；"性能 → 内存"里"已缓存"那一栏是页缓存，不计入 12.9GB 的"使用中"。</div>
+
+<!-- ============ 4. 磁盘 ============ -->
+<h2>4. 磁盘 2%：被缓存架构"退休"的部件</h2>
+<table>
+  <thead><tr><th>动作</th><th>频率</th><th>流量</th><th>为什么感知不到</th></tr></thead>
+  <tbody>
+    <tr><td>读训练数据（.npy/json）</td><td>首轮 epoch</td><td>~几个 GB</td><td>首轮后全部驻留页缓存，后续读=纯内存命中（磁盘曲线归零）</td></tr>
+    <tr><td>写 checkpoint（图上尖峰来源）</td><td>每 epoch 1 次</td><td>258MB</td><td>NVMe 顺序写 GB/s 级，0.2 秒写完；平均摊到整个 epoch ≈ 1MB/s 量级</td></tr>
+    <tr><td>tensorboard 事件追加</td><td>持续</td><td>KB 级</td><td>操作系统写缓冲聚合</td></tr>
+  </tbody>
+</table>
+<div class="note">🔹 这正是 09-04 做的<b>离线预处理缓存</b>（<code>scripts/preprocess_dataset.py</code>）的红利：把"每步 mel 变换 + 音素化"变成"每 epoch 读现成文件"，磁盘从持续工作部件变成只负责 checkpoint 的"仓库管理员"。若删掉缓存重训一轮，你会看到磁盘曲线常年 10-30%、CPU 多一摊 mel 计算负载。</div>
+
+<!-- ============ 5. 谁在拖谁 + 调优杠杆 ============ -->
+<h2>5. 流水线视角：瓶颈在哪、还有哪些杠杆</h2>
+<figure>
+<svg viewBox="0 0 940 150" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1e7a55"/>
+    </marker>
+  </defs>
+  <g font-size="13">
+    <rect x="20"  y="40" width="180" height="60" rx="8" fill="#f7faf8" stroke="#64748b"/><text x="110" y="65" text-anchor="middle" fill="#475569" font-weight="bold">磁盘 2%</text><text x="110" y="85" text-anchor="middle" font-size="11" fill="#666">已退休（页缓存接管）</text>
+    <rect x="240" y="40" width="180" height="60" rx="8" fill="#f7faf8" stroke="#64748b"/><text x="330" y="65" text-anchor="middle" fill="#475569" font-weight="bold">内存 85%</text><text x="330" y="85" text-anchor="middle" font-size="11" fill="#666">够用但贴警戒线</text>
+    <rect x="460" y="40" width="180" height="60" rx="8" fill="#e8f4ee" stroke="#1e7a55"/><text x="550" y="65" text-anchor="middle" fill="#14573c" font-weight="bold">CPU 33%</text><text x="550" y="85" text-anchor="middle" font-size="11" fill="#666">指挥 + 喂食</text>
+    <rect x="680" y="40" width="180" height="60" rx="8" fill="#1e7a55"/><text x="770" y="65" text-anchor="middle" fill="#fff" font-weight="bold">GPU 46%</text><text x="770" y="85" text-anchor="middle" font-size="11" fill="#d8ede4">等喂数据</text>
+  </g>
+  <g stroke="#1e7a55" stroke-width="2" fill="none" marker-end="url(#ar3)">
+    <line x1="200" y1="70" x2="237" y2="70" stroke="#64748b"/>
+    <line x1="420" y1="70" x2="457" y2="70"/>
+    <line x1="640" y1="70" x2="677" y2="70"/>
+  </g>
+  <text x="470" y="130" text-anchor="middle" font-size="12.5" fill="#666">串行链：数据 → 批组装 → kernel 发射 → 计算。链上每一环都半闲 = 瓶颈是"链路延迟"而非"某环节算力"</text>
+</svg>
+<figcaption>图 2 · 四部件的"健康度"画像。对 16M 级小模型 + 8GB 卡，这就是稳态；等模型/批次变大后，链条会自然被计算压满</figcaption>
+</figure>
+
+<table>
+  <thead><tr><th>杠杆</th><th>预期收益</th><th>建议</th></tr></thead>
+  <tbody>
+    <tr><td>加大 <code>num_workers</code>（2→4）</td><td>batch 组装更快，GPU 等待略减</td><td>内存只剩 2.3GB 余量，每个 worker ~780MB——<b>最多再+1</b>，否则重蹈 85% 覆辙</td></tr>
+    <tr><td>提高 GPU 利用率的正道</td><td>—</td><td>不是本机调参能解决的：需要更大的模型/批次/序列（你已在用有效 batch 64 的最大显存配置）</td></tr>
+    <tr><td>降低 checkpoint 频率</td><td>几乎无收益（磁盘本来就不忙）</td><td><b>不动</b>——every_n_epochs=1 是 09-04 血泪换来的保险</td></tr>
+    <tr><td>关浏览器等 GPU 应用</td><td>显存余量 +几百 MB</td><td>值得做，也给激活留突发余量</td></tr>
+  </tbody>
+</table>
+
+<p style="margin-top:30px; color:#666; font-size:12.5px;">姊妹篇：<code>docs/parameter_internals.html</code>（模型参数的存放与传递，含 checkpoint 258MB 账本）。生成日期：2026-09-06。</p>
+</div>
+</body>
+</html>

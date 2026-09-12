@@ -1,3 +1,11 @@
+# -*- coding: utf-8 -*-
+"""
+HiFi-GAN 声码器模型定义（源自 https://github.com/jik876/hifi-gan）
+====================================================================
+声码器(Vocoder)的作用：把模型生成的梅尔频谱(mel-spectrogram)还原成可听见的音频波形(waveform)。
+包含生成器 Generator（转置卷积上采样 + 多感受野残差块）、以及判别器（仅训练声码器时使用）。
+Matcha-TTS 默认使用预训练好的 HiFi-GAN，无需自己训练。
+"""
 """ from https://github.com/jik876/hifi-gan """
 
 import torch

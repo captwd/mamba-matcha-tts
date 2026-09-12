@@ -3,6 +3,10 @@ The file creates a pickle file where the values needed for loading of dataset is
 when needed.
 
 Parameters from hparam.py will be used
+
+【中文说明】从训练好的模型中提取音素时长脚本
+用已训练模型的时长预测器，为训练数据里的每条音频生成音素级时长（durations），
+保存后可在重新训练时通过 use_precomputed_durations=True 直接使用，跳过时长对齐，加快训练。
 """
 import argparse
 import json

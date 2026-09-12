@@ -3,6 +3,11 @@ The file creates a pickle file where the values needed for loading of dataset is
 when needed.
 
 Parameters from hparam.py will be used
+
+【中文说明】生成数据统计信息脚本
+扫描整个训练集音频，计算梅尔频谱的均值(mel_mean)和标准差(mel_std)，写入 data_statistics.json。
+这些统计量用于训练时对频谱做归一化，新数据集训练模型前需要先运行本脚本：
+    python matcha/utils/generate_data_statistics.py filelist_path=<训练文件列表路径>
 """
 import argparse
 import json

@@ -7,11 +7,15 @@ model_checkpoint:
   monitor: epoch # name of the logged metric which determines when model is improving
   verbose: False # verbosity mode
   save_last: true # additionally always save an exact copy of the last checkpoint to a file last.ckpt
-  save_top_k: 10 # save k best models (determined by above metric)
+  save_top_k: 3 # save k best models (determined by above metric)
   mode: "max" # "max" means higher metric value is better, can be also "min"
   auto_insert_metric_name: True # when True, the checkpoints filenames will contain the metric name
   save_weights_only: False # if True, then only the model’s weights will be saved
   every_n_train_steps: null # number of training steps between checkpoints
   train_time_interval: null # checkpoints are monitored at the specified time interval
-  every_n_epochs: 100 # number of epochs between checkpoints
+  # 【中文说明】每 1 轮存一次 checkpoint。
+  # 注意：新版 Lightning 中 last.ckpt 只在"本轮存过编号 checkpoint"时才写入，
+  # 所以 every_n_epochs 必须设为 1 才能保证每轮都有 last.ckpt 可用于断点续训。
+  # 原值 100 导致中途停止时 100 轮以内的训练进度全部丢失！
+  every_n_epochs: 1 # number of epochs between checkpoints
   save_on_train_epoch_end: null # whether to run checkpointing at the end of the training epoch or the end of validation

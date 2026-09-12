@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>计算机硬件原理入门 · 为深度学习而学</title>
+<style>
+  :root { --green:#1e7a55; --green-d:#14573c; --green-l:#e8f4ee; --ink:#222; --muted:#666; --line:#e3e8e5; --red:#c0392b; --blue:#2563ab; --amber:#b7791f; --gray:#64748b; }
+  * { box-sizing:border-box; }
+  body { margin:0; color:var(--ink); font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif; line-height:1.75; }
+  .wrap { max-width:1000px; margin:0 auto; padding:24px 28px 90px; }
+  h1 { font-size:26px; } h1 .accent{ color:var(--green); }
+  h2 { font-size:20px; margin:54px 0 12px; padding-bottom:8px; border-bottom:2px solid var(--green); }
+  h3 { font-size:16px; color:var(--green-d); margin:28px 0 8px; }
+  p, li { font-size:14.5px; }
+  code { background:#f3f6f4; border:1px solid var(--line); border-radius:4px; padding:1px 6px; font-size:13px; font-family:Consolas,monospace; color:var(--green-d); }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; margin:10px 0; }
+  th,td { border:1px solid var(--line); padding:7px 10px; text-align:left; }
+  thead th { background:var(--green); color:#fff; }
+  tbody tr:nth-child(even){ background:#f7fbf9; }
+  .note { background:var(--green-l); border-left:4px solid var(--green); padding:10px 14px; border-radius:0 8px 8px 0; font-size:13.5px; margin:14px 0; }
+  .warn { background:#fdf3e7; border-left:4px solid var(--amber); padding:10px 14px; border-radius:0 8px 8px 0; font-size:13.5px; margin:14px 0; }
+  figure { margin:18px 0; text-align:center; }
+  figcaption { font-size:12.5px; color:var(--muted); margin-top:6px; }
+  svg { max-width:100%; height:auto; font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+  .term { color:var(--blue); font-weight:600; }
+  .formula { background:#f7faf8; border:1px solid var(--line); border-radius:8px; padding:12px 16px; font-family:Consolas,monospace; font-size:13px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>计算机硬件原理入门<span class="accent"> · 为深度学习而学</span></h1>
+<p>不讲本机状态，只讲原理：CPU、内存、磁盘、GPU 各自的物理构造、工作方式、以及为什么深度学习会把它们的特性放大成你看到的现象。所有数字按典型消费级硬件给出量级（你的 R9 8940HX / 16GB DDR5 / NVMe / RTX 5060 笔记本基本都落在这些范围内）。</p>
+
+<!-- =============== 0. 延迟阶梯 =============== -->
+<h2>0. 先建立世界观：延迟阶梯</h2>
+<p>整台计算机的本质是<b>一座为速度妥协容量的金字塔</b>。每往下一层：容量大约 ×10~1000，但速度慢 ×10~10000。一切优化故事的根源都在这张表里。</p>
+
+<figure>
+<svg viewBox="0 0 940 400" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1e7a55"/>
+    </marker>
+  </defs>
+  <g font-size="12.5">
+    <!-- pyramid layers -->
+    <polygon points="400,20 540,20 480,70 460,70" fill="#14573c"/>
+    <text x="470" y="50" text-anchor="middle" fill="#fff" font-size="11.5">寄存器 ~0.3ns</text>
+    <polygon points="380,78 560,78 590,128 350,128" fill="#1e7a55"/>
+    <text x="470" y="108" text-anchor="middle" fill="#fff" font-size="11.5">L1/L2 缓存 1~10ns（KB~MB）</text>
+    <polygon points="345,136 595,136 630,186 310,186" fill="#2c8f66"/>
+    <text x="470" y="166" text-anchor="middle" fill="#fff" font-size="11.5">L3 共享缓存 10~40ns（几十 MB）</text>
+    <polygon points="305,194 635,194 670,244 270,244" fill="#b7791f"/>
+    <text x="470" y="222" text-anchor="middle" fill="#fff" font-size="11.5">内存 DRAM ~100ns（GB 级）</text>
+    <polygon points="265,252 675,252 710,302 230,302" fill="#2563ab"/>
+    <text x="470" y="280" text-anchor="middle" fill="#fff" font-size="11.5">NVMe SSD ~0.1ms（TB 级）</text>
+    <polygon points="225,310 715,310 750,360 190,360" fill="#64748b"/>
+    <text x="470" y="338" text-anchor="middle" fill="#fff" font-size="11.5">机械硬盘 ~10ms（TB 级）｜网络跨洋 ~0.15s</text>
+  </g>
+  <!-- human scale -->
+  <g font-size="12" fill="#14573c" font-weight="bold">
+    <text x="770" y="105" text-anchor="middle">人类时间标尺</text>
+    <text x="770" y="128" text-anchor="middle">（1 周期 ≈ 1 秒）</text>
+  </g>
+  <g font-size="11.5" fill="#666">
+    <text x="770" y="166" text-anchor="middle">L1 命中 ≈ 4 秒</text>
+    <text x="770" y="192" text-anchor="middle">L3 命中 ≈ 40 秒</text>
+    <text x="770" y="222" text-anchor="middle">内存 ≈ 5 分钟</text>
+    <text x="770" y="252" text-anchor="middle">SSD ≈ 3.5 天</text>
+    <text x="770" y="282" text-anchor="middle">机械盘寻道 ≈ 9 个月</text>
+    <text x="770" y="308" text-anchor="middle">跨洋网络 ≈ 14 年</text>
+  </g>
+  <text x="470" y="388" text-anchor="middle" font-size="12" fill="#666">换算基准：3GHz CPU，1 周期 ≈ 0.33ns，放大 30 亿倍后用"人的一生"去感受每层差距</text>
+</svg>
+<figcaption>图 0 · 延迟金字塔。深度学习中"数据搬运"的花费往往超过"计算"本身——因为数据就住在这座金字塔的不同楼层</figcaption>
+</figure>
+
+<!-- =============== 1. CPU =============== -->
+<h2>1. CPU：一台专为"延迟"优化的机器</h2>
+
+<h3>1.1 核心内部长什么样</h3>
+<figure>
+<svg viewBox="0 0 940 330" xmlns="http://www.w3.org/2000/svg">
+  <rect x="20" y="30" width="900" height="260" rx="12" fill="#f7faf8" stroke="#1e7a55" stroke-width="2"/>
+  <text x="470" y="56" text-anchor="middle" font-size="14" font-weight="bold" fill="#14573c">一个 CPU 核心的解剖（流水线五段）</text>
+  <g font-size="12">
+    <rect x="50" y="80" width="130" height="50" rx="8" fill="#1e7a55"/><text x="115" y="110" text-anchor="middle" fill="#fff">取指 Fetch</text>
+    <rect x="220" y="80" width="130" height="50" rx="8" fill="#2c8f66"/><text x="285" y="110" text-anchor="middle" fill="#fff">解码 Decode</text>
+    <rect x="390" y="80" width="150" height="50" rx="8" fill="#b7791f"/><text x="465" y="110" text-anchor="middle" fill="#fff">乱序调度 OoO</text>
+    <rect x="580" y="80" width="130" height="50" rx="8" fill="#2563ab"/><text x="645" y="110" text-anchor="middle" fill="#fff">执行 ALU/SIMD</text>
+    <rect x="750" y="80" width="130" height="50" rx="8" fill="#64748b"/><text x="815" y="110" text-anchor="middle" fill="#fff">写回 Retire</text>
+  </g>
+  <g stroke="#475569" stroke-width="2" fill="none" marker-end="url(#ar2)">
+    <line x1="180" y1="105" x2="217" y2="105"/><line x1="350" y1="105" x2="387" y2="105"/>
+    <line x1="540" y1="105" x2="577" y2="105"/><line x1="710" y1="105" x2="747" y2="105"/>
+  </g>
+  <!-- caches -->
+  <g font-size="11.5">
+    <rect x="120" y="170" width="200" height="40" rx="8" fill="#e8f4ee" stroke="#1e7a55"/><text x="220" y="195" text-anchor="middle">L1：32KB 指令 + 32KB 数据（每核私有，~4 周期）</text>
+    <rect x="360" y="170" width="200" height="40" rx="8" fill="#e8f4ee" stroke="#1e7a55"/><text x="460" y="195" text-anchor="middle">L2：~1MB（每核私有，~12 周期）</text>
+    <rect x="600" y="170" width="290" height="40" rx="8" fill="#e8f4ee" stroke="#1e7a55"/><text x="745" y="195" text-anchor="middle">L3：几十 MB（全核共享，~40 周期）</text>
+    <text x="470" y="245" text-anchor="middle" fill="#666">缓存行（cache line）= 64B：数据按 64 字节整块搬运 —— "顺序访问快、跳跃访问慢"的物理根源</text>
+    <text x="470" y="270" text-anchor="middle" fill="#c0392b">内存墙：L1 之后每一层都慢一个数量级，CPU 设计的全部魔法都在"预测并提前把数据搬到楼上"</text>
+  </g>
+</svg>
+<figcaption>图 1 · CPU 核心。取指-解码-执行流水线 + 乱序执行 + 多级缓存。注意：现代 CPU 每周期能并行发射 4~8 条指令，所以"频率"远不能代表性能</figcaption>
+</figure>
+
+<h3>1.2 四个决定 CPU 性能的关键词</h3>
+<table>
+  <thead><tr><th>概念</th><th>一句话原理</th><th>对训练的含义</th></tr></thead>
+  <tbody>
+    <tr><td><b>频率 GHz</b></td><td>每秒的时钟节拍数；节拍≠完成一条指令（现代指令跨多周期）</td><td>3.19GHz 是你看到的当前频率；笔记本会按温度/负载动态升降（ thermal throttling）</td></tr>
+    <tr><td><b>IPC × 频率 × 核数</b></td><td>性能 = 每周期指令数 × 频率 × 有效核数，三者缺一不可</td><td>Python 循环 IPC 很低（解释器开销），所以训练主进程"忙"但产出少</td></tr>
+    <tr><td><b>SMT 超线程</b></td><td>一个物理核伪装成 2 个逻辑线程，共享执行单元填空闲</td><td>你的 16 线程 = 8 物理核；33% 利用率 ≈ 约 5 个线程真在干活</td></tr>
+    <tr><td><b>SIMD 向量</b></td><td>一条 AVX 指令同时处理 8~16 个浮点数</td><td>NumPy/torch CPU 算子的加速来源；也是 mel 预处理快的部分原因</td></tr>
+  </tbody>
+</table>
+
+<h3>1.3 "CPU 利用率 33%" 到底在量什么</h3>
+<div class="note">操作系统调度器每秒采样数百次，统计"<b>有任务可跑的核心·时间</b> ÷ 总核心·时间"。所以 33% 的意思是：采样时刻平均只有 1/3 的核心"有活干"。它<b>不衡量</b>这些活的含金量（一个忙等循环也能让利用率 100%）。深度学习训练里 CPU 大部分等待来自：等 GPU 同步、等数据、等锁（GIL）。</div>
+
+<!-- =============== 2. 内存 =============== -->
+<h2>2. 内存（DRAM）：易失的"工作台"与虚拟内存的戏法</h2>
+
+<h3>2.1 DRAM 的物理本质</h3>
+<p>每比特就是一个<b>微型电容</b>（有电=1，没电=0）。电容会漏电，所以 DRAM 每 ~64ms 必须整行<b>刷新</b>一次——这就是"易失性"的由来，也是断电丢数据的根源。CPU 访问 DRAM 需要先激活整行（~几十 ns），这也是随机访问比顺序访问略慢的原因。双通道/四通道 = 多条并行的数据总线，带宽 = 频率 × 位宽 × 通道数（DDR5-5600 双通道 ≈ 89GB/s）。</p>
+
+<h3>2.2 虚拟内存：程序看到的地址是"假的"</h3>
+<figure>
+<svg viewBox="0 0 940 330" xmlns="http://www.w3.org/2000/svg">
+  <g font-size="12">
+    <rect x="30" y="50" width="200" height="90" rx="8" fill="#e8f4ee" stroke="#1e7a55"/>
+    <text x="130" y="75" text-anchor="middle" font-weight="bold" fill="#14573c">进程的虚拟地址空间</text>
+    <text x="130" y="96" text-anchor="middle" fill="#666">每个进程独享一整套地址</text>
+    <text x="130" y="116" text-anchor="middle" fill="#666">0x7fff…（看似连续）</text>
+
+    <rect x="390" y="40" width="160" height="60" rx="8" fill="#fff" stroke="#b7791f"/>
+    <text x="470" y="64" text-anchor="middle" fill="#b7791f" font-weight="bold">MMU + TLB</text>
+    <text x="470" y="84" text-anchor="middle" fill="#666">查页表：虚拟页→物理页</text>
+
+    <rect x="700" y="30" width="220" height="110" rx="8" fill="#1e7a55"/>
+    <text x="810" y="56" text-anchor="middle" fill="#fff" font-weight="bold">物理内存（DRAM）</text>
+    <text x="810" y="78" text-anchor="middle" fill="#d8ede4">页 = 4KB 的分配单位</text>
+    <text x="810" y="98" text-anchor="middle" fill="#d8ede4">页缓存（文件副本）也住这里</text>
+    <text x="810" y="118" text-anchor="middle" fill="#d8ede4">pinned 页：锁死不许换出</text>
+
+    <rect x="390" y="150" width="160" height="60" rx="8" fill="#fce8e6" stroke="#c0392b"/>
+    <text x="470" y="174" text-anchor="middle" fill="#c0392b" font-weight="bold">缺页异常</text>
+    <text x="470" y="194" text-anchor="middle" fill="#666"> Minor：从页缓存补</text>
+    <text x="470" y="212" text-anchor="middle" fill="#666"> Major：要读磁盘！</text>
+
+    <rect x="700" y="180" width="220" height="80" rx="8" fill="#64748b"/>
+    <text x="810" y="206" text-anchor="middle" fill="#fff" font-weight="bold">换页（swap/pagefile）</text>
+    <text x="810" y="228" text-anchor="middle" fill="#eee">内存吃紧时，系统把冷页</text>
+    <text x="810" y="246" text-anchor="middle" fill="#eee">写回磁盘腾地方——每次访问变慢 10⁵ 倍</text>
+  </g>
+  <g stroke="#1e7a55" stroke-width="2" fill="none" marker-end="url(#ar2)">
+    <line x1="230" y1="90" x2="387" y2="70"/>
+    <line x1="550" y1="70" x2="697" y2="75"/>
+    <line x1="230" y1="120" x2="387" y2="180" stroke="#c0392b"/>
+    <line x1="550" y1="180" x2="697" y2="225" stroke="#c0392b"/>
+  </g>
+  <text x="470" y="300" text-anchor="middle" font-size="12.5" fill="#666">TLB 命中 → 地址翻译 ~1 周期；TLB 未中 → 查页表（多次访存）；缺 Major 页 → 读盘（ms 级）。pinned memory 就是"跟 OS 打包票不换出"的页——所以 H2D 拷贝才能异步直送</text>
+</svg>
+<figcaption>图 2 · 虚拟内存机制。"内存不足"的真实过程：分配失败/换页 → 冷页写盘 → 你在任务管理器看到的"已提交"飙升</figcaption>
+</figure>
+
+<h3>2.3 页缓存：为什么第二次读文件几乎不花时间</h3>
+<div class="note">OS 会把读写过的文件内容<b>自动留在空闲内存里</b>（Windows 叫 standby list，Linux 叫 page cache）。这属于"空闲内存的聪明用法"——需要时立刻让位。深度学习数据集（几 GB 的 .npy）第一次读进内存后，之后每个 epoch 都是纯内存命中。这就是"读一次数据，整晚训练磁盘都退休"的原理。</div>
+
+<h3>2.4 锁页内存（pinned / page-locked）</h3>
+<p>普通内存可以被 OS 换出到磁盘，因此 DMA 引擎不敢直接用它做异步拷贝（数据可能中途消失）。<b>锁页内存 = 向 OS 承诺"绝不换出"</b>的页，于是 GPU 的 DMA 引擎可以安全地异步直读。PyTorch 的 <code>pin_memory=True</code> 就是在干这个——代价是锁死的页会<b>加剧</b>内存压力（不能当缓存用），所以它是一把双刃剑。</p>
+
+<!-- =============== 3. 磁盘 =============== -->
+<h2>3. 磁盘：SSD 的"改写为什么这么麻烦"</h2>
+
+<h3>3.1 机械盘 vs 固态盘：物理原理完全不同</h3>
+<table>
+  <thead><tr><th></th><th>HDD 机械盘</th><th>SSD 固态盘</th></tr></thead>
+  <tbody>
+    <tr><td>存储介质</td><td>磁性涂层盘片，磁头机械臂寻道</td><td>NAND 闪存芯片（电子囚禁在浮栅晶体管里）</td></tr>
+    <tr><td>随机访问</td><td>寻道+旋转 ≈ 5~10ms（机械运动！）</td><td>无机械部件，~0.02~0.1ms</td></tr>
+    <tr><td>顺序带宽</td><td>~150-250MB/s</td><td>SATA ~550MB/s；NVMe 2~7GB/s</td></tr>
+    <tr><td>寿命来源</td><td>机械磨损</td><td>每个单元的擦写次数有限（TLC ~1000-3000 次）</td></tr>
+  </tbody>
+</table>
+
+<h3>3.2 NAND 的两个别扭特性（SSD 一切怪行为的根源）</h3>
+<figure>
+<svg viewBox="0 0 940 280" xmlns="http://www.w3.org/2000/svg">
+  <rect x="30" y="40" width="400" height="200" rx="10" fill="#f7faf8" stroke="#2563ab"/>
+  <text x="230" y="66" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#2563ab">① 读/写按"页"（4~16KB）</text>
+  <g>
+    <rect x="60" y="88" width="80" height="30" fill="#2563ab"/><text x="100" y="108" text-anchor="middle" fill="#fff" font-size="11">page 0</text>
+    <rect x="140" y="88" width="80" height="30" fill="#e8f4ee" stroke="#1e7a55"/><text x="180" y="108" text-anchor="middle" font-size="11">page 1</text>
+    <rect x="220" y="88" width="80" height="30" fill="#2563ab"/><text x="260" y="108" text-anchor="middle" fill="#fff" font-size="11">page 2</text>
+    <rect x="300" y="88" width="80" height="30" fill="#2563ab"/><text x="340" y="108" text-anchor="middle" fill="#fff" font-size="11">page 3</text>
+  </g>
+  <text x="230" y="150" text-anchor="middle" font-size="12" fill="#666">可以单独写一个空页</text>
+  <text x="230" y="172" text-anchor="middle" font-size="12" fill="#666">但同一页写第二次之前必须先擦</text>
+  <rect x="30" y="196" width="400" height="30" fill="#fce8e6"/>
+  <text x="230" y="216" text-anchor="middle" font-size="12" fill="#c0392b" font-weight="bold">② 擦除按"块"（= 几百个页一起！）</text>
+
+  <rect x="500" y="40" width="410" height="200" rx="10" fill="#fff" stroke="#b7791f"/>
+  <text x="705" y="66" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#b7791f">FTL（闪存转换层）：SSD 里的"翻译官"</text>
+  <g font-size="11.5" fill="#666">
+    <text x="520" y="94">① 你改写 4KB → SSD 不敢原地擦（要拖上几百页）</text>
+    <text x="520" y="116">② 于是把新数据写到别的空页，改映射表</text>
+    <text x="520" y="138">③ 旧页标记为"垃圾"，攒多了后台回收（GC）</text>
+    <text x="520" y="160">④ 副作用：写入放大（实际写 &gt; 你写的）、掉速</text>
+    <text x="520" y="188">⑤ 磨损均衡：FTL 故意把擦写摊到全盘所有块</text>
+    <text x="520" y="210" fill="#c0392b">⇒ SSD "写多了变慢"和"寿命"都源于此</text>
+  </g>
+</svg>
+<figcaption>图 3 · NAND 页/块模型 + FTL。SSD 顺序写快、随机写也不慢的原因是 FTL 把随机写重排成大块顺序写</figcaption>
+</figure>
+
+<h3>3.3 NVMe 比 SATA 快在哪</h3>
+<div class="note">SATA/AHCI 协议只有 <b>1 条命令队列、深度 32</b>；NVMe 走 PCIe 直连，支持 <b>64000 条队列、每条 64000 深</b>。并行度差三个数量级——这就是"同为 SSD，随机读写差好几倍"的协议层原因。训练时的启示：checkpoint 是大块顺序写（NVMe 强项）；数据集若真要读盘也尽量<b>顺序大块读</b>，别每条样本一次小 IO。</div>
+
+<!-- =============== 4. GPU =============== -->
+<h2>4. GPU：一台专为"吞吐量"优化的机器</h2>
+
+<h3>4.1 CPU 和 GPU 的哲学差异</h3>
+<figure>
+<svg viewBox="0 0 940 300" xmlns="http://www.w3.org/2000/svg">
+  <rect x="30" y="40" width="420" height="220" rx="10" fill="#f7faf8" stroke="#1e7a55"/>
+  <text x="240" y="66" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#14573c">CPU：4 个教授</text>
+  <g font-size="11.5" fill="#666">
+    <text x="50" y="94">· 少量超强核心：乱序执行、分支预测、超大缓存</text>
+    <text x="50" y="116">· 目标：让"单个任务的延迟"尽可能小</text>
+    <text x="50" y="138">· 擅长：复杂逻辑、分支、串行依赖</text>
+    <text x="50" y="160">· 弱点：并行任务多时，每个任务的启动开销高</text>
+    <rect x="50" y="180" width="180" height="30" fill="#e8f4ee" stroke="#1e7a55"/><text x="140" y="200" text-anchor="middle" font-size="11">延迟优化（Low Latency）</text>
+    <rect x="240" y="180" width="180" height="30" fill="#e8f4ee" stroke="#1e7a55"/><text x="330" y="200" text-anchor="middle" font-size="11">缓存大量数据就地算</text>
+  </g>
+  <rect x="490" y="40" width="420" height="220" rx="10" fill="#e8f4ee" stroke="#2563ab"/>
+  <text x="700" y="66" text-anchor="middle" font-size="13.5" font-weight="bold" fill="#2563ab">GPU：一个礼堂的学生</text>
+  <g font-size="11.5" fill="#666">
+    <text x="510" y="94">· 几千个简单核心：同时做一模一样的简单算术</text>
+    <text x="510" y="116">· 目标：让"总吞吐量"尽可能大，单步延迟无所谓</text>
+    <text x="510" y="138">· 擅长：海量同构小计算（矩阵乘法！）</text>
+    <text x="510" y="160">· 弱点：分支多、逻辑复杂的任务（发散即空转）</text>
+    <rect x="510" y="180" width="180" height="30" fill="#fff" stroke="#2563ab"/><text x="600" y="200" text-anchor="middle" font-size="11">吞吐优化（Throughput）</text>
+    <rect x="700" y="180" width="180" height="30" fill="#fff" stroke="#2563ab"/><text x="790" y="200" text-anchor="middle" font-size="11">靠并行度填满流水线</text>
+  </g>
+</svg>
+<figcaption>图 4 · CPU vs GPU：延迟机器 vs 吞吐机器。神经网络训练 = 巨量矩阵乘 = GPU 主场；而 Python 循环、数据整理 = CPU 主场</figcaption>
+</figure>
+
+<h3>4.2 GPU 内部：SM、warp 与"用切换隐藏延迟"</h3>
+<div class="note">GPU 的最小调度单位是 <b>warp（32 个线程绑在一起，单指令多数据 SIMT）</b>。每个 SM（流式多处理器）同时驻留几十个 warp；当一个 warp 在等显存数据（几百周期）时，调度器<b>立刻切到另一个就绪的 warp</b> 继续算——用海量切换把访存延迟藏起来。这叫<b>延迟隐藏</b>，是 GPU 编程的灵魂。
+<br><br>推论：如果同时驻留的 warp 太少（= <b>occupancy 低</b>，比如你的 batch 只有 32），没有"备胎 warp"可切，GPU 就只能干等 → 任务管理器利用率低。这就是"小 batch 喂不饱 GPU"的架构层解释。
+<br><br>显存侧同理分层级：寄存器 → 共享内存/L1（每 SM 私有，~几十周期）→ L2（全卡共享）→ GDDR/HBM（~300+GB/s，几百周期）。访存模式连续（coalesced）时带宽才能打满——张量的内存布局之所以重要，就在这。</div>
+
+<h3>4.3 拷贝引擎：让"搬家"和"计算"同时进行</h3>
+<div class="note">GPU 里除了计算核心，还有独立的 <b>DMA 拷贝引擎</b>。所以"上一批数据在 GPU 上计算"和"下一批数据从内存拷进来"可以<b>并行</b>——这就是数据预取（prefetch）能提高 GPU 利用率的硬件基础。前提：源内存必须 pinned（见 2.4），否则 DMA 无法安全异步。</div>
+
+<!-- =============== 5. 协同 =============== -->
+<h2>5. 四件套如何协同：一次 H2D 拷贝的完整旅程</h2>
+<p>以"<code>batch.to(device)</code>"这一行代码为例，把四章串起来：</p>
+<div class="formula">
+① Python 调用 → ② PyTorch C++ 层把张量指针交给驱动 (WDDM/CUDA) → ③ 驱动向 GPU 拷贝引擎提交 DMA 命令
+→ ④ PCIe 总线传输（~16-32GB/s；数据须来自 pinned 页，否则先要 CPU 搬运 staging）→ ⑤ 拷贝完成触发中断
+→ ⑥ 驱动通知 CUDA 流"事件完成" → ⑦ 后续排在同一流里的 kernel 才开始执行
+</div>
+<table>
+  <thead><tr><th>环节</th><th>参与的硬件</th><th>典型耗时</th></tr></thead>
+  <tbody>
+    <tr><td>CPU 侧准备/命令提交</td><td>CPU + 系统调用 + 驱动</td><td>~10µs 级（每次发射的固定开销）</td></tr>
+    <tr><td>PCIe 传输 32 样本 batch</td><td>DMA 引擎 + PCIe</td><td>~毫秒级（几 MB ÷ 16GB/s）</td></tr>
+    <tr><td>kernel 真正计算一步</td><td>SM 阵列</td><td>视模型大小，毫秒~几十毫秒</td></tr>
+  </tbody>
+</table>
+<div class="warn">🔹 <b>全局图景</b>：深度学习训练 = 在"延迟阶梯"上反复搬数据，同时让 GPU 的吞吐机器别停。你做过的每个优化（页缓存、pinned、预取、梯度累积、混合精度）都能在这张地图上找到坐标：<b>把数据搬到离计算最近的一层，或者让搬运与计算重叠</b>。</div>
+
+<!-- =============== 6. 延伸学习 =============== -->
+<h2>6. 想继续深入：推荐路线</h2>
+<table>
+  <thead><tr><th>资源</th><th>学什么</th><th>难度</th></tr></thead>
+  <tbody>
+    <tr><td>《深入理解计算机系统》(CSAPP) 第 1/5/6/9 章</td><td>本章所有内容的"教材版"：缓存、虚拟内存、链接、系统级 IO</td><td>★★</td></tr>
+    <tr><td>CMU 15-213 公开课（B 站有搬运）</td><td>CSAPP 的配套课，Lab 质量极高（malloc/cache lab）</td><td>★★</td></tr>
+    <tr><td>《What Every Programmer Should Know About Memory》 (Ulrich Drepper)</td><td>内存子系统最深度的一篇长文（免费）</td><td>★★★★</td></tr>
+    <tr><td>PMPP《Programming Massively Parallel Processors》第 4 版</td><td>GPU 架构与 CUDA 的圣经：warp、occupancy、shared memory 全讲透</td><td>★★★</td></tr>
+    <tr><td>NVIDIA 官方文档：《CUDA C++ Programming Guide》第 2 章 + 《CUDA Best Practices》</td><td>kernel、流、拷贝引擎、统一内存</td><td>★★★</td></tr>
+    <tr><td>GTC 演讲 & "GPU MODE"（YouTube 频道）</td><td>实战向 GPU 性能工程，前沿技巧</td><td>★★★★</td></tr>
+  </tbody>
+</table>
+<p style="margin-top:30px; color:#666; font-size:12.5px;">姊妹篇：<code>docs/parameter_internals.html</code>（模型参数视角）· <code>docs/hardware_during_training.html</code>(训练时本机各部件实况)。生成日期：2026-09-06。</p>
+</div>
+</body>
+</html>

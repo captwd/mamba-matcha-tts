@@ -1,3 +1,13 @@
+# -*- coding: utf-8 -*-
+"""
+通用工具函数集合（General Utilities）
+========================================
+包括：
+1. 训练辅助：extras（标签/警告/配置打印）、task_wrapper、log_hyperparameters、save_watchdog 等
+2. Hydra 辅助：instantiators（实例化回调/日志器）、get_metric_value（超参搜索用）
+3. 推理辅助：assert_model_downloaded（自动下载预训练模型）、get_user_data_dir（模型存放目录）、
+   intersperse（序列中插入占位符）、plot_tensor（绘制梅尔频谱图）
+"""
 import os
 import sys
 import warnings
@@ -7,6 +17,9 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Tuple
 
 import gdown
+import matplotlib
+
+matplotlib.use("Agg")  # 强制使用无界面后端，训练时画频谱图不需要显示窗口
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
@@ -14,6 +27,20 @@ import wget
 from omegaconf import DictConfig
 
 from matcha.utils import pylogger, rich_utils
+
+# 【中文说明】torch>=2.6 兼容补丁：torch.load 默认 weights_only=True，
+# 会拒绝加载含 OmegaConf 等对象的 checkpoint（Lightning 传入 weights_only=None 也会触发）。
+# 我们加载的都是本地自己训练的文件（来源可信），这里把未显式指定的情况恢复为旧行为 False。
+_original_torch_load = torch.load
+
+
+def _torch_load_compat(*args, **kwargs):
+    if kwargs.get("weights_only", False) is None:
+        kwargs["weights_only"] = False
+    return _original_torch_load(*args, **kwargs)
+
+
+torch.load = _torch_load_compat
 
 log = pylogger.get_pylogger(__name__)
 
@@ -136,8 +163,10 @@ def intersperse(lst, item):
 
 
 def save_figure_to_numpy(fig):
-    data = np.fromstring(fig.canvas.tostring_rgb(), dtype=np.uint8, sep="")
-    data = data.reshape(fig.canvas.get_width_height()[::-1] + (3,))
+    # 兼容 matplotlib >= 3.10：tostring_rgb() 已被移除，改用 buffer_rgba()
+    # 同时强制使用 Agg 无界面后端，避免训练时弹出 Tk 窗口
+    fig.canvas.draw()
+    data = np.asarray(fig.canvas.buffer_rgba())[:, :, :3].copy()  # 去掉 alpha 通道 -> RGB
     return data
 
 

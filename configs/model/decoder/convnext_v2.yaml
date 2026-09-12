@@ -1,0 +1,12 @@
+defaults:
+  - default.yaml
+  - _self_
+
+# 【中文说明】ConvNeXt V2 局部算子变体：只把 Decoder 里的特征提取块
+# （ResnetBlock 内部 + final_block）从 Block1D 换成 ConvNeXtV2 单元，
+# U-Net 骨架 / Transformer 块 / 时间条件注入全部不变。
+#
+# 用法（本仓库 hydra 结构下，嵌套组覆盖 model.decoder=convnext_v2 不生效，
+# 需用"补键"语法覆盖开关本身）：
+#   python matcha/train.py experiment=<你的实验> +model.decoder.resnet_type=convnext_v2
+resnet_type: convnext_v2

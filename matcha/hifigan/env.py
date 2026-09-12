@@ -1,5 +1,6 @@
+# -*- coding: utf-8 -*-
+"""【中文说明】工具模块：AttrDict 让字典可以用属性方式访问（h.xxx），build_env 用于复制配置文件。"""
 """ from https://github.com/jik876/hifi-gan """
-
 import os
 import shutil
 

@@ -162,3 +162,7 @@ g_02500000
 gradio_cached_examples/
 synth_output/
 /data
+
+# 评估产物：只保留逐句指标 CSV（评估音频与中间 npy 不入库）
+/results/**/*.wav
+/results/**/*.npy

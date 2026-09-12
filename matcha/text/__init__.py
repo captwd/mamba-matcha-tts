@@ -1,3 +1,12 @@
+# -*- coding: utf-8 -*-
+"""
+文本 -> 音素序列 转换模块（源自 keithito/tacotron）
+====================================================
+这是文本前端(Text Frontend)的入口：
+1. text_to_sequence：文本 -> 清洗(cleaners) -> 符号(symbol) -> 整数 ID 序列（模型的输入）
+2. sequence_to_text：整数 ID 序列 -> 反解回文本（调试用）
+3. _clean_text：按顺序调用 cleaners.py 中的清洗函数（如 english_cleaners2）
+"""
 """ from https://github.com/keithito/tacotron """
 from matcha.text import cleaners
 from matcha.text.symbols import symbols

@@ -1,0 +1,282 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>PyTorch 模型参数：存放与传递的完整解剖</title>
+<style>
+  :root { --green:#1e7a55; --green-d:#14573c; --green-l:#e8f4ee; --ink:#222; --muted:#666; --line:#e3e8e5; --red:#c0392b; --blue:#2563ab; --amber:#b7791f; }
+  * { box-sizing:border-box; }
+  body { margin:0; color:var(--ink); font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif; line-height:1.7; }
+  .wrap { max-width:1000px; margin:0 auto; padding:24px 28px 90px; }
+  h1 { font-size:26px; } h1 .accent{ color:var(--green); }
+  h2 { font-size:20px; margin:52px 0 12px; padding-bottom:8px; border-bottom:2px solid var(--green); }
+  h3 { font-size:16px; color:var(--green-d); margin:26px 0 8px; }
+  p, li { font-size:14.5px; }
+  code { background:#f3f6f4; border:1px solid var(--line); border-radius:4px; padding:1px 6px; font-size:13px; font-family:Consolas,monospace; color:var(--green-d); }
+  pre { background:#f7faf8; border:1px solid var(--line); border-radius:8px; padding:14px 16px; overflow-x:auto; font-size:13px; font-family:Consolas,monospace; line-height:1.5; }
+  table { border-collapse:collapse; width:100%; font-size:13.5px; margin:10px 0; }
+  th,td { border:1px solid var(--line); padding:7px 10px; text-align:left; }
+  thead th { background:var(--green); color:#fff; }
+  tbody tr:nth-child(even){ background:#f7fbf9; }
+  .note { background:var(--green-l); border-left:4px solid var(--green); padding:10px 14px; border-radius:0 8px 8px 0; font-size:13.5px; margin:14px 0; }
+  .warn { background:#fdf3e7; border-left:4px solid var(--amber); padding:10px 14px; border-radius:0 8px 8px 0; font-size:13.5px; margin:14px 0; }
+  figure { margin:18px 0; text-align:center; }
+  figcaption { font-size:12.5px; color:var(--muted); margin-top:6px; }
+  svg { max-width:100%; height:auto; font-family:"Segoe UI","Microsoft YaHei",sans-serif; }
+  .term { color:var(--blue); font-weight:600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>模型参数的<span class="accent">存放与传递</span> · 完整解剖</h1>
+<p>以本项目（MatchaTTS，ConvNeXt V2 变体，全模型 <b>22.5M</b> 参数：encoder 7.2M + decoder 15.3M）为实例，从张量内存布局讲到显存地图。所有数字均为本机实测（torchinfo 参数表 + checkpoint 逐键字节统计）。</p>
+
+<!-- ============ 1. Tensor 解剖 ============ -->
+<h2>1. 最底层：一个 Tensor 到底是什么</h2>
+<p>PyTorch 的每个张量由两部分组成：<span class="term">元数据</span>（轻量，几百字节）和 <span class="term">Storage</span>（真正的连续字节缓冲，可被多个张量共享）。<code>x.view()</code> / <code>x[:, 2]</code> 这类操作不复制数据，只新建一个"指向同一 Storage 的视图"——这就是之前说 forward 里"按引用传递、零拷贝"的物理基础。</p>
+
+<figure>
+<svg viewBox="0 0 940 300" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#1e7a55"/>
+    </marker>
+  </defs>
+  <!-- Tensor object -->
+  <rect x="20" y="40" width="250" height="200" rx="10" fill="#e8f4ee" stroke="#1e7a55" stroke-width="2"/>
+  <text x="145" y="66" text-anchor="middle" font-size="15" font-weight="bold" fill="#14573c">Python 张量对象</text>
+  <text x="40" y="94" font-size="13">x : Tensor（元数据，~几百 B）</text>
+  <text x="52" y="120" font-size="12.5">shape = [256, 172]</text>
+  <text x="52" y="142" font-size="12.5">stride / dtype = float32</text>
+  <text x="52" y="164" font-size="12.5">device = cuda:0</text>
+  <text x="52" y="186" font-size="12.5">requires_grad = True（Parameter）</text>
+  <text x="52" y="214" font-size="12.5" fill="#2563ab" font-weight="bold">storage → 指针 ↓</text>
+
+  <!-- arrow -->
+  <line x1="272" y1="140" x2="330" y2="140" stroke="#1e7a55" stroke-width="2" marker-end="url(#ar)"/>
+  <text x="300" y="128" text-anchor="middle" font-size="12" fill="#666">引用</text>
+
+  <!-- Storage -->
+  <rect x="335" y="70" width="260" height="140" rx="10" fill="#fff" stroke="#2563ab" stroke-width="2"/>
+  <text x="465" y="96" text-anchor="middle" font-size="15" font-weight="bold" fill="#2563ab">Storage（引用计数缓冲）</text>
+  <text x="465" y="118" text-anchor="middle" font-size="12.5" fill="#666">一整块连续内存，按字节计</text>
+  <g font-size="11" fill="#fff">
+    <rect x="355" y="130" width="44" height="26" fill="#2563ab"/><text x="377" y="147" text-anchor="middle">f32</text>
+    <rect x="399" y="130" width="44" height="26" fill="#3b82c4"/><text x="421" y="147" text-anchor="middle">f32</text>
+    <rect x="443" y="130" width="44" height="26" fill="#2563ab"/><text x="465" y="147" text-anchor="middle">f32</text>
+    <rect x="487" y="130" width="44" height="26" fill="#3b82c4"/><text x="509" y="147" text-anchor="middle">f32</text>
+    <rect x="531" y="130" width="44" height="26" fill="#2563ab"/><text x="553" y="147" text-anchor="middle">…</text>
+  </g>
+  <text x="465" y="192" text-anchor="middle" font-size="12" fill="#666">256 × 172 × 4B ≈ 176 KB</text>
+
+  <!-- views -->
+  <line x1="597" y1="110" x2="660" y2="110" stroke="#1e7a55" stroke-width="2" marker-end="url(#ar)"/>
+  <line x1="597" y1="170" x2="660" y2="170" stroke="#1e7a55" stroke-width="2" marker-end="url(#ar)"/>
+  <rect x="665" y="80" width="250" height="52" rx="8" fill="#f7faf8" stroke="#1e7a55"/>
+  <text x="790" y="102" text-anchor="middle" font-size="12.5">x[ :, 10]（切片视图）</text>
+  <text x="790" y="120" text-anchor="middle" font-size="11.5" fill="#666">新建元数据，共享 Storage → 零拷贝</text>
+  <rect x="665" y="150" width="250" height="52" rx="8" fill="#f7faf8" stroke="#1e7a55"/>
+  <text x="790" y="172" text-anchor="middle" font-size="12.5">x.view(...)（形状视图）</text>
+  <text x="790" y="190" text-anchor="middle" font-size="11.5" fill="#666">同上；.to(device) 则相反：新建 Storage</text>
+</svg>
+<figcaption>图 1 · 张量 = 元数据 + Storage。视图共享 Storage（零拷贝）；.to(device) / clone() 才产生新的字节缓冲</figcaption>
+</figure>
+
+<div class="note">🔹 <b>Parameter 是什么</b>：<code>nn.Parameter</code> 只是"requires_grad=True 的 Tensor"再挂进模块的登记簿。除此之外和普通张量无异。</div>
+
+<!-- ============ 2. 模块树与 state_dict ============ -->
+<h2>2. 模块树：参数如何被"登记"和"编址"</h2>
+<p>每个 <code>nn.Module</code> 内部有三个字典：<code>_parameters</code>（可训练张量）、<code>_buffers</code>（不训练但要存档，如 <code>mel_mean/mel_std</code>）、<code>_modules</code>（子模块）。构造函数里 <code>self.xxx = nn.Parameter/Module</code> 的赋值语句就是注册动作。整个模型是一棵树；<code>state_dict()</code> 就是<b>深度优先摊平这棵树</b>，路径名 = 属性名用点号连接 = 加载时的"门牌号"。</p>
+
+<figure>
+<svg viewBox="0 0 940 420" xmlns="http://www.w3.org/2000/svg">
+  <!-- tree -->
+  <rect x="20" y="20" width="380" height="370" rx="10" fill="#fff" stroke="#1e7a55" stroke-width="2"/>
+  <text x="210" y="46" text-anchor="middle" font-size="15" font-weight="bold" fill="#14573c">MatchaTTS（模块树）</text>
+  <g font-size="12.5">
+    <rect x="45" y="66" width="150" height="30" rx="6" fill="#1e7a55"/><text x="120" y="85" text-anchor="middle" fill="#fff">MatchaTTS</text>
+    <rect x="60" y="116" width="160" height="26" rx="6" fill="#e8f4ee" stroke="#1e7a55"/><text x="140" y="133" text-anchor="middle">encoder (TextEncoder)</text>
+    <rect x="60" y="152" width="160" height="26" rx="6" fill="#e8f4ee" stroke="#1e7a55"/><text x="140" y="169" text-anchor="middle">decoder (CFM)</text>
+    <rect x="60" y="196" width="120" height="24" rx="6" fill="#f7faf8" stroke="#999"/><text x="120" y="212" text-anchor="middle" fill="#666">mel_mean/std (buffer)</text>
+    <rect x="100" y="240" width="170" height="26" rx="6" fill="#e8f4ee" stroke="#1e7a55"/><text x="185" y="257" text-anchor="middle">estimator (Decoder)</text>
+    <rect x="130" y="286" width="190" height="26" rx="6" fill="#fdf3e7" stroke="#b7791f"/><text x="225" y="303" text-anchor="middle">down_blocks.0.0 (ConvNeXt块)</text>
+    <rect x="160" y="330" width="200" height="26" rx="6" fill="#fff" stroke="#b7791f"/><text x="260" y="347" text-anchor="middle">block1.dwconv.weight (Parameter)</text>
+  </g>
+  <g stroke="#1e7a55" stroke-width="1.5" fill="none">
+    <line x1="120" y1="96" x2="120" y2="116"/><line x1="140" y1="142" x2="140" y2="152"/>
+    <line x1="130" y1="178" x2="130" y2="196"/><line x1="170" y1="178" x2="185" y2="240"/>
+    <line x1="200" y1="266" x2="215" y2="286"/><line x1="235" y1="312" x2="250" y2="330"/>
+  </g>
+
+  <!-- flatten arrow -->
+  <line x1="410" y1="200" x2="480" y2="200" stroke="#1e7a55" stroke-width="2.5" marker-end="url(#ar)"/>
+  <text x="445" y="188" text-anchor="middle" font-size="12" fill="#666">state_dict()</text>
+  <text x="445" y="216" text-anchor="middle" font-size="11" fill="#666">深度优先摊平</text>
+
+  <!-- flat dict -->
+  <rect x="488" y="20" width="432" height="370" rx="10" fill="#f7faf8" stroke="#2563ab" stroke-width="2"/>
+  <text x="704" y="46" text-anchor="middle" font-size="15" font-weight="bold" fill="#2563ab">OrderedDict（门牌号 → 张量）</text>
+  <g font-size="11.5" font-family="Consolas,monospace">
+    <text x="505" y="74" fill="#14573c">"encoder.emb.weight"                        → [512,178]</text>
+    <text x="505" y="98" fill="#14573c">"encoder.encoder.attn_layers.0.conv_q.weight" → [512,512]</text>
+    <text x="505" y="122" fill="#b7791f">"decoder.estimator.down_blocks.0.0.</text>
+    <text x="521" y="142" fill="#b7791f">block1.dwconv.weight"            → [256,1,7]</text>
+    <text x="521" y="162" fill="#b7791f">block1.norm.weight"              → [256]</text>
+    <text x="521" y="182" fill="#b7791f">grn.gamma / grn.beta"            → [1,1,1024]</text>
+    <text x="505" y="206" fill="#14573c">"decoder.estimator.mid_blocks.0.0.res_conv.weight"</text>
+    <text x="505" y="230" fill="#14573c">"mel_mean"  → scalar   (buffer，不训练)</text>
+    <text x="505" y="254" fill="#14573c">"mel_std"   → scalar   (buffer，不训练)</text>
+  </g>
+  <text x="704" y="292" text-anchor="middle" font-size="12.5" fill="#c0392b" font-weight="bold">加载 = 按门牌号 copy_() 逐个搬入</text>
+  <text x="704" y="314" text-anchor="middle" font-size="12" fill="#666">换骨干 → 门牌号对不上 → missing/unexpected keys</text>
+  <text x="704" y="336" text-anchor="middle" font-size="12" fill="#666">架构（resnet_type 等）不在 state_dict 里，</text>
+  <text x="704" y="356" text-anchor="middle" font-size="12" fill="#666">而在 checkpoint 的 hyper_parameters 中（图纸 vs 家具）</text>
+</svg>
+<figcaption>图 2 · 模块树 → state_dict 摊平。名字即地址；数值即家具。图纸（结构超参）走 hparams 这条独立通道</figcaption>
+</figure>
+
+<div class="warn">🔹 <b>去重规则</b>：两个模块共享同一个 Parameter 时（权重共享），state_dict 只保留一个条目（按对象 id 去重）。本项目无此情况，但阅读 <code>TextEncoder</code> 里 q/k 投影时要知道有这个机制。</div>
+
+<!-- ============ 3. autograd ============ -->
+<h2>3. Autograd：激活从哪来，梯度到哪去</h2>
+<p>前向时，每一步可微运算都会在<b>动态计算图</b>上登记一个节点，并把反向所需的中间结果（<span class="term">激活</span>）挂在节点上——这就是显存里"激活"的来源，它们由计算图持有，<code>backward()</code> 走完即释放。梯度沿图反向流，最终由 <code>AccumulateGrad</code> 节点写入叶子参数的 <code>.grad</code>（<b>累加语义</b>，这就是梯度累积的物理机制）。</p>
+
+<figure>
+<svg viewBox="0 0 940 330" xmlns="http://www.w3.org/2000/svg">
+  <!-- forward nodes -->
+  <g font-size="12.5">
+    <rect x="30" y="60" width="110" height="42" rx="7" fill="#e8f4ee" stroke="#1e7a55"/><text x="85" y="78" text-anchor="middle">z（噪声）</text><text x="85" y="95" text-anchor="middle" fill="#666" font-size="11">requires_grad=False</text>
+    <rect x="30" y="140" width="110" height="42" rx="7" fill="#e8f4ee" stroke="#1e7a55"/><text x="85" y="158" text-anchor="middle">mu_y（条件）</text><text x="85" y="175" text-anchor="middle" fill="#666" font-size="11">来自 encoder</text>
+    <rect x="30" y="220" width="110" height="42" rx="7" fill="#e8f4ee" stroke="#1e7a55"/><text x="85" y="238" text-anchor="middle">t（时间步）</text><text x="85" y="255" text-anchor="middle" fill="#666" font-size="11">张量 leaf</text>
+
+    <rect x="215" y="105" width="200" height="120" rx="10" fill="#1e7a55"/>
+    <text x="315" y="132" text-anchor="middle" fill="#fff" font-weight="bold">estimator 前向图</text>
+    <text x="315" y="154" text-anchor="middle" fill="#d8ede4" font-size="11">ConvNeXt 单元 ×N + Transformer</text>
+    <text x="315" y="174" text-anchor="middle" fill="#d8ede4" font-size="11">每个算子 = 图上一个节点</text>
+    <text x="315" y="200" text-anchor="middle" fill="#ffd9a0" font-size="11">节点间挂着的中间结果 = 激活（显存大头）</text>
+
+    <rect x="480" y="135" width="120" height="42" rx="7" fill="#e8f4ee" stroke="#1e7a55"/><text x="540" y="153" text-anchor="middle">v_pred (B,80,T)</text><text x="540" y="170" text-anchor="middle" fill="#666" font-size="11">速度场预测</text>
+
+    <rect x="660" y="135" width="110" height="42" rx="7" fill="#fdf3e7" stroke="#b7791f"/><text x="715" y="153" text-anchor="middle">MSE(·, u)</text><text x="715" y="170" text-anchor="middle" fill="#666" font-size="11">÷ 有效帧×通道</text>
+
+    <rect x="820" y="135" width="100" height="42" rx="7" fill="#c0392b"/><text x="870" y="161" text-anchor="middle" fill="#fff">loss（标量）</text>
+  </g>
+  <g stroke="#1e7a55" stroke-width="1.8" fill="none" marker-end="url(#ar)">
+    <line x1="140" y1="81" x2="212" y2="120"/><line x1="140" y1="161" x2="212" y2="161"/>
+    <line x1="140" y1="241" x2="212" y2="200"/><line x1="415" y1="165" x2="477" y2="156"/>
+    <line x1="600" y1="156" x2="657" y2="156"/><line x1="770" y1="156" x2="817" y2="156"/>
+  </g>
+
+  <!-- backward -->
+  <g font-size="12" fill="#c0392b">
+    <path d="M 870 182 C 870 290 300 300 315 228" fill="none" stroke="#c0392b" stroke-width="2" stroke-dasharray="6 4"/>
+    <text x="575" y="292" text-anchor="middle" font-size="13" fill="#c0392b" font-weight="bold">backward()：沿图反向传播 → 每个 Parameter 的 .grad 被“+=”累加</text>
+    <text x="575" y="312" text-anchor="middle" font-size="11.5">AccumulateGrad 节点写叶子；走完后图与激活全部释放 → 梯度累积 = 不清零 .grad 多跑几个微批次</text>
+  </g>
+</svg>
+<figcaption>图 3 · 以 compute_loss 为例：前向建图（蓝箭头）挂激活，反向（红虚线）写 .grad。激活随图释放；.grad 与参数同形同设备，持续驻留</figcaption>
+</figure>
+
+<div class="note">🔹 <b>为什么梯度累积数学等价</b>：<code>.grad += 微批梯度</code> 天然求和；两个均批梯度之和 = 大批平均梯度 ×2，缩放常数被学习率吸收。且本项目用 GroupNorm/LayerNorm（无跨样本统计），batch 切分零副作用。</div>
+
+<!-- ============ 4. 一步训练 ============ -->
+<h2>4. 一个优化器步的完整数据流（你当前的配置）</h2>
+<p>配置：batch 32 × 累积 2，<code>precision: 16-mixed</code>，<code>gradient_clip_val: 5.0</code>。带 ★ 的动作发生在显存上，其余在 CPU/RAM。</p>
+
+<figure>
+<svg viewBox="0 0 940 360" xmlns="http://www.w3.org/2000/svg">
+  <text x="470" y="30" text-anchor="middle" font-size="14" font-weight="bold" fill="#14573c">优化器步 1 次 = 微批次 ×2</text>
+  <!-- micro batch 1 -->
+  <rect x="20" y="50" width="440" height="130" rx="10" fill="#f7faf8" stroke="#1e7a55"/>
+  <text x="240" y="72" text-anchor="middle" font-size="13" fill="#14573c" font-weight="bold">微批次 ①（32 个样本）</text>
+  <g font-size="12">
+    <rect x="40" y="86" width="120" height="34" rx="6" fill="#fff" stroke="#2563ab"/><text x="100" y="108" text-anchor="middle">H2D 拷贝（pinned）</text>
+    <rect x="180" y="86" width="120" height="34" rx="6" fill="#fff" stroke="#1e7a55"/><text x="240" y="108" text-anchor="middle">★前向 autocast fp16</text>
+    <rect x="320" y="86" width="120" height="34" rx="6" fill="#fff" stroke="#c0392b"/><text x="380" y="108" text-anchor="middle">★反向（×scale）</text>
+  </g>
+  <text x="240" y="150" text-anchor="middle" font-size="11.5" fill="#666">loss.backward()：.grad += 缩放后的梯度（不清零，不 step）</text>
+  <text x="240" y="168" text-anchor="middle" font-size="11.5" fill="#666">激活随图释放 → 只有 .grad 攒着（小）</text>
+
+  <!-- micro batch 2 -->
+  <rect x="480" y="50" width="440" height="130" rx="10" fill="#f7faf8" stroke="#1e7a55"/>
+  <text x="700" y="72" text-anchor="middle" font-size="13" fill="#14573c" font-weight="bold">微批次 ②（同上再来一遍）</text>
+  <g font-size="12">
+    <rect x="500" y="86" width="120" height="34" rx="6" fill="#fff" stroke="#2563ab"/><text x="560" y="108" text-anchor="middle">H2D 拷贝（pinned）</text>
+    <rect x="640" y="86" width="120" height="34" rx="6" fill="#fff" stroke="#1e7a55"/><text x="700" y="108" text-anchor="middle">★前向 autocast fp16</text>
+    <rect x="780" y="86" width="120" height="34" rx="6" fill="#fff" stroke="#c0392b"/><text x="840" y="108" text-anchor="middle">★反向（×scale）</text>
+  </g>
+  <text x="700" y="150" text-anchor="middle" font-size="11.5" fill="#666">.grad 现在持有“两个 32 样本微批之和”≈ batch64 的梯度</text>
+  <text x="700" y="168" text-anchor="middle" font-size="11.5" fill="#666">至此累计 64 个样本的信息，尚未更新任何参数</text>
+
+  <!-- accumulation boundary -->
+  <rect x="120" y="210" width="700" height="130" rx="10" fill="#fdf3e7" stroke="#b7791f"/>
+  <text x="470" y="234" text-anchor="middle" font-size="13" fill="#b7791f" font-weight="bold">累积边界（第 2 个微批之后）——只有这里动参数</text>
+  <g font-size="12">
+    <rect x="145" y="252" width="180" height="34" rx="6" fill="#fff" stroke="#c0392b"/><text x="235" y="274" text-anchor="middle">scaler.unscale_(grads)</text>
+    <rect x="345" y="252" width="170" height="34" rx="6" fill="#fff" stroke="#b7791f"/><text x="430" y="274" text-anchor="middle">clip_grad_norm_ (5.0)</text>
+    <rect x="535" y="252" width="160" height="34" rx="6" fill="#fff" stroke="#1e7a55"/><text x="615" y="274" text-anchor="middle">optimizer.step()</text>
+    <rect x="715" y="252" width="90" height="34" rx="6" fill="#fff" stroke="#666"/><text x="760" y="274" text-anchor="middle">zero_grad()</text>
+  </g>
+  <text x="470" y="316" text-anchor="middle" font-size="11.5" fill="#666">Adam 用 .grad 更新 m/v 与参数（读写在常驻的 ~360MB 参数区：参数+梯度+Adam）→ 清空 .grad → 进入下一轮</text>
+</svg>
+<figcaption>图 4 · 一个优化器步。注意“参数/梯度/Adam 状态”始终常驻显存（~360MB，ConvNeXt 版实测），来回搬运的只有每个微批次的数据与激活</figcaption>
+</figure>
+
+<!-- ============ 5. 显存地图 ============ -->
+<h2>5. 显存地图：7.6GB 里都住了什么</h2>
+<figure>
+<svg viewBox="0 0 940 250" xmlns="http://www.w3.org/2000/svg">
+  <rect x="40" y="40" width="880" height="70" rx="8" fill="#f7faf8" stroke="#999"/>
+  <text x="55" y="30" font-size="13" fill="#14573c" font-weight="bold">专用显存 7.6GB 的构成（训练中，示意比例）</text>
+  <g font-size="11.5" fill="#fff">
+    <rect x="40"  y="52" width="120" height="46" fill="#2563ab"/><text x="100" y="72" text-anchor="middle">CUDA 上下文</text><text x="100" y="88" text-anchor="middle">~0.4GB</text>
+    <rect x="160" y="52" width="150" height="46" fill="#1e7a55"/><text x="235" y="72" text-anchor="middle">参数 fp32 主本</text><text x="235" y="88" text-anchor="middle">~90MB（22.5M 全量）</text>
+    <rect x="310" y="52" width="150" height="46" fill="#2c8f66"/><text x="385" y="72" text-anchor="middle">梯度 .grad</text><text x="385" y="88" text-anchor="middle">~90MB（同形）</text>
+    <rect x="460" y="52" width="150" height="46" fill="#14573c"/><text x="535" y="72" text-anchor="middle">Adam m+v</text><text x="535" y="88" text-anchor="middle">~180MB（精确 2×）</text>
+    <rect x="610" y="52" width="180" height="46" fill="#b7791f"/><text x="700" y="72" text-anchor="middle">激活（当前微批）</text><text x="700" y="88" text-anchor="middle">随 batch/序列长 变化</text>
+    <rect x="790" y="52" width="130" height="46" fill="#64748b"/><text x="855" y="72" text-anchor="middle">分配器缓存</text><text x="855" y="88" text-anchor="middle">已释放待复用</text>
+  </g>
+  <!-- spill -->
+  <rect x="40" y="150" width="880" height="56" rx="8" fill="#fce8e6" stroke="#c0392b" stroke-dasharray="6 4"/>
+  <text x="70" y="182" font-size="13" fill="#c0392b" font-weight="bold">越界区 = 共享 GPU 内存（系统 RAM）</text>
+  <text x="480" y="182" font-size="12.5" fill="#c0392b">WDDM 自动分页，走 PCIe（16~32GB/s vs 显存 300+GB/s）→ 利用率锯齿、it/s 掉数倍</text>
+  <text x="480" y="198" font-size="11.5" fill="#c0392b">之前的 batch64 溢出 ~1GB 就落在这里；现 batch32 已回到上栏</text>
+</svg>
+<figcaption>图 5 · 显存地图。常驻（蓝绿系，~0.5GB 固定）+ 激活（棕，弹性大头）+ 缓存（灰，Torch 复用池）。batch64→32 只动“激活”一项</figcaption>
+</figure>
+
+<!-- ============ 6. 258MB 账本 ============ -->
+<h2>6. checkpoint 258MB 的精确账本（实测）</h2>
+<p>对 <code>2026-09-06_14-46-16/checkpoints/last.ckpt</code> 逐顶层键统计张量字节数的结果：</p>
+<table>
+  <thead><tr><th>成分</th><th>实测大小</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td><code>state_dict</code>（模型全量 fp32）</td><td><b>85.9 MiB</b></td><td>22.5M 参数 × 4B = 90.1 MB；含 buffers（mel_mean/std 两个标量）</td></tr>
+    <tr><td><code>optimizer_states</code>（Adam）</td><td><b>171.8 MiB</b></td><td>每参数两条同形状态：<code>exp_avg</code>(m) + <code>exp_avg_sq</code>(v)，fp32 —— <b>恰好是权重的精确 2 倍</b>（171.8 = 2×85.9），ckpt 的大头</td></tr>
+    <tr><td><code>hyper_parameters</code></td><td>≈0</td><td>“图纸”（含 resnet_type、act_fn）；pickle 序列化 —— 所以必须 <code>weights_only=False</code>（你的 <code>_torch_load_compat</code> 兼容层）</td></tr>
+    <tr><td><code>epoch</code> / <code>global_step</code> / <code>lr_schedulers</code> / <code>loops</code> / callbacks</td><td>≈0</td><td>断点续训的全部“进度状态”（epoch 计数、调度器 last_epoch、循环位置）</td></tr>
+    <tr><td>合计</td><td><b>257.7 MiB ≈ 文件 258.2MB ✓</b></td><td>逐项对上，无未解释残余</td></tr>
+  </tbody>
+</table>
+<div class="note">🔹 <b>MiB vs MB 陷阱</b>：资源管理器显示的"MB"其实是 MiB（1 MiB=1,048,576 B）。22.5M 参数 × 4B = 90.1 MB(十进制) = 85.9 MiB —— 两种单位都“对”，别用错进制对账。</div>
+
+<!-- ============ 7. FAQ ============ -->
+<h2>7. 把常见疑问映射回这套模型</h2>
+<table>
+  <thead><tr><th>现象/疑问</th><th>解释</th></tr></thead>
+  <tbody>
+    <tr><td>换 ConvNeXt 后为什么不能热迁移权重？</td><td>门牌号变了（<code>block1.block.0.weight</code> → <code>block1.dwconv.weight</code>）且形状不同；state_dict 加载是严格按名匹配 + <code>copy_</code></td></tr>
+    <tr><td>为什么改结构要重训而换声码器不用？</td><td>声码器不进 state_dict 的匹配范围（独立模型）；声学模型结构变了 = 门牌变了 = 必须重训</td></tr>
+    <tr><td><code>.to(device)</code> 之后对象还是原来那个吗？</td><td>是。Parameter 对象身份不变，只换内部的 Storage 指针（搬到显存）——所以 Python 侧引用全部继续有效</td></tr>
+    <tr><td>梯度累积为什么省显存？</td><td>激活随图即时释放，.grad 与参数同形（小）。“攒激活”才贵，“攒梯度”便宜</td></tr>
+    <tr><td>16-mixed 省的是什么？</td><td>参数主本仍 fp32（常驻不变）；省的是<b>激活/中间值</b>（fp16）与 Tensor Core 计算。这也是它降显存到不了 50% 的原因</td></tr>
+    <tr><td>为什么 <code>weights_only=False</code>？</td><td>ckpt 里 pickle 了 OmegaConf/Python 对象（hyper_parameters），torch 2.6+ 默认安全模式拒绝——你仓库的 <code>_torch_load_compat</code> 兼容层就是为此</td></tr>
+    <tr><td>推理时为什么显存占用小得多？</td><td>无反向 → 无激活缓存、无 .grad、无 Adam 状态：常驻只剩参数 ~90MB + 单次前向激活</td></tr>
+    <tr><td>U-Net 和 ConvNeXt 版差多少参数？</td><td>U-Net 基线：encoder 7.2M + decoder 11.0M = <b>18.2M</b>（常驻 ~208MiB）；ConvNeXt：decoder 15.3M，全模型 <b>22.5M</b>（常驻 ~270MiB）。多出的主要是每单元 4× 升维的 pointwise 层</td></tr>
+  </tbody>
+</table>
+
+<p style="margin-top:30px; color:#666; font-size:12.5px;">相关文件：本模型 <code>matcha/models/matcha_tts.py</code>（装配）· <code>matcha/models/components/convnext_v2.py</code>（参数单元示例）· <code>matcha/models/baselightningmodule.py</code>（update_data_statistics 的 buffer 注册）。生成日期：2026-09-06。</p>
+</div>
+</body>
+</html>

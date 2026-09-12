@@ -1,3 +1,4 @@
+# 【中文说明】把模型/数据模块/训练器的超参数记录到日志器（如 WandB/TensorBoard）中
 from typing import Any, Dict
 
 from lightning.pytorch.utilities import rank_zero_only

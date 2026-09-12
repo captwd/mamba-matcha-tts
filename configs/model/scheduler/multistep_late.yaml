@@ -1,0 +1,27 @@
+# 【中文说明】LR 衰减实验配置（配合从 ep100 checkpoint 续训到 140 使用）
+#
+# 设计：
+#   从全局 ep100 续训 40 个 epoch。仓库的 configure_optimizers 在恢复 checkpoint 时
+#   会把 scheduler.last_epoch 设为 99（恢复 epoch-1），因此里程碑必须写在
+#   "全局 epoch 轴"上（[104, 114, 124, 134]），衰减在全局 ep105/115/125/135 生效：
+#       全局 ep100~105: 1e-4
+#       全局 ep105~115: 5e-5
+#       全局 ep115~125: 2.5e-5
+#       全局 ep125~135: 1.25e-5
+#       全局 ep135~140: 6.25e-6
+#   由此检验"恒定 lr 扰动 → MCD 震荡"假设：衰减后 MCD 曲线应趋于平稳。
+#
+# 教训（09-07）：曾把里程碑写成局部 epoch [5,15,25,35]，但计数器从 99 起跳，
+# 永远够不到 → 衰减静默失效（跑了 40ep 全程 1e-4）。已用纯 torch 模拟验证
+# 全局轴写法正确。 MultiStepLR 构造时 last_epoch 由恢复逻辑置 99，
+# 未跨任何里程碑 → lr 保持 1e-4，与 ckpt 恢复值一致，无跳变。
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.MultiStepLR
+  _partial_: true
+  milestones: [104, 114, 124, 134]
+  gamma: 0.5
+
+lightning_args:
+  interval: epoch
+  frequency: 1
