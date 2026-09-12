@@ -155,6 +155,7 @@
     <div class="card"><h3>② 声码器适配层</h3><p>把推理侧的声码器加载重写成注册表，接一个 BigVGAN 适配器：mel 规格对齐后即插即用，不用重训声学模型，和 HiFi-GAN 可以随时切换。</p></div>
     <div class="card"><h3>③ 评估管线</h3><p>写了批量评估脚本，一次跑完合成、DTW-MCD、wav2vec2 转写算 WER/CER，并做声码器往返校准；训练时也记录每轮的 val MCD 曲线。</p></div>
     <div class="card"><h3>④ 质量诊断</h3><p>一开始 MCD 数值偏大，做了往返校准、跨语句对照和人工听写交叉验证，确认是"能听懂但细节偏糊"，属于少步 ODE 采样的常见现象，并给出了量化标定。</p></div>
+    <div class="card"><h3>⑤ 骨干替换</h3><p>把 U-Net 的全局混合器（自注意力）换成双向 Mamba2，局部算子换成 ConvNeXt V2 单元。两者都走配置开关，同一份代码跑全部变体；Mamba 版把 WER 压到 8.7%，是这几组里最好的。</p></div>
   </div>
 
   <!-- ================= 3. 试听 ================= -->
@@ -230,6 +231,23 @@
         <td class="play" data-s="3"><button class="pbtn" data-src="audio/convnext140_hifigan/sentence_4.wav"></button></td>
         <td class="play" data-s="4"><button class="pbtn" data-src="audio/convnext140_hifigan/sentence_5.wav"></button></td>
       </tr>
+      <tr>
+        <td class="sys" rowspan="2">Mamba2 双向<br><small style="font-weight:400">140 epoch</small></td>
+        <td class="cond">BigVGAN</td>
+        <td class="play" data-s="0"><button class="pbtn" data-src="audio/mamba139_bigvgan/sentence_1.wav"></button></td>
+        <td class="play" data-s="1"><button class="pbtn" data-src="audio/mamba139_bigvgan/sentence_2.wav"></button></td>
+        <td class="play" data-s="2"><button class="pbtn" data-src="audio/mamba139_bigvgan/sentence_3.wav"></button></td>
+        <td class="play" data-s="3"><button class="pbtn" data-src="audio/mamba139_bigvgan/sentence_4.wav"></button></td>
+        <td class="play" data-s="4"><button class="pbtn" data-src="audio/mamba139_bigvgan/sentence_5.wav"></button></td>
+      </tr>
+      <tr>
+        <td class="cond">HiFi-GAN</td>
+        <td class="play" data-s="0"><button class="pbtn" data-src="audio/mamba139_hifigan/sentence_1.wav"></button></td>
+        <td class="play" data-s="1"><button class="pbtn" data-src="audio/mamba139_hifigan/sentence_2.wav"></button></td>
+        <td class="play" data-s="2"><button class="pbtn" data-src="audio/mamba139_hifigan/sentence_3.wav"></button></td>
+        <td class="play" data-s="3"><button class="pbtn" data-src="audio/mamba139_hifigan/sentence_4.wav"></button></td>
+        <td class="play" data-s="4"><button class="pbtn" data-src="audio/mamba139_hifigan/sentence_5.wav"></button></td>
+      </tr>
     </tbody>
   </table>
 
@@ -264,6 +282,11 @@
         <td class="l"><b>ConvNeXt V2 + LR 衰减</b> + BigVGAN（ep135）</td>
         <td><b>10.1%</b></td><td><b>2.9%</b></td><td>7.6%</td><td><b>51.0 ± 16.8</b></td>
         <td class="l">MCD 明显好于基线（p=0.0024），本页最好的一组</td>
+      </tr>
+      <tr>
+        <td class="l"><b>Mamba2 双向</b> + HiFi-GAN（ep139）</td>
+        <td><b>8.7%</b></td><td><b>2.3%</b></td><td>7.6%</td><td>51.7 ± 17.4</td>
+        <td class="l">WER 是这几组里最好的；MCD 与上面的衰减 ConvNeXt 打平（p=0.23）。BigVGAN 版几乎一样（8.6% / 51.6dB）</td>
       </tr>
       <tr>
         <td class="l">ConvNeXt V2 + BigVGAN（ep140，恒定 LR）</td>

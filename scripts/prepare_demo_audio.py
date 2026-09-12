@@ -9,6 +9,8 @@
     ours_bigvgan    本复现模型(140ep) + BigVGAN
     ours_hifigan    本复现模型(140ep) + HiFi-GAN T2
     official_hifigan 官方预训练 matcha_ljspeech + HiFi-GAN T2
+    convnext140_*   ConvNeXt V2 局部算子(140ep)
+    mamba139_*      双向 Mamba2 全局混合器(140ep, 衰减 LR)
 
 用法：python scripts/prepare_demo_audio.py
 换模型/声码器后重跑本脚本即可刷新 demo 音频。
@@ -32,6 +34,8 @@ OURS_CKPT = ROOT / "logs/train/ljspeech_min/runs/2026-09-05_12-02-02/checkpoints
 OFFICIAL_CKPT = ROOT / "logs/train/ljspeech_min/runs/matcha_ljspeech.ckpt"
 # 【中文说明】ConvNeXt V2 ep140（2026-09-06 追加的两组）
 CONVNEXT_CKPT = ROOT / "logs/train/ljspeech_min/runs/2026-09-06_19-53-10/checkpoints/checkpoint_epoch=139.ckpt"
+# 【中文说明】双向 Mamba2 ep139（2026-09-08 run，衰减 LR）
+MAMBA_CKPT = ROOT / "logs/train/ljspeech_min/runs/2026-09-08_13-30-03/checkpoints/checkpoint_epoch=139.ckpt"
 
 # 【中文说明】演示用的 5 条句子（来自 val 集，WER 与 GT-WER 均为 0，长度错开）
 SELECTED_UTTS = ["LJ050-0184", "LJ009-0077", "LJ016-0002", "LJ010-0097", "LJ003-0136"]
@@ -101,7 +105,7 @@ def main():
         type=str,
         default=None,
         help="只重生成指定组（逗号分隔）：gt,ours_bigvgan,ours_hifigan,official_hifigan,"
-        "convnext140_bigvgan,convnext140_hifigan；默认全部",
+        "convnext140_bigvgan,convnext140_hifigan,mamba139_bigvgan,mamba139_hifigan；默认全部",
     )
     args = parser.parse_args()
     only = set(args.systems.split(",")) if args.systems else None
@@ -117,6 +121,8 @@ def main():
         "official_hifigan": (OFFICIAL_CKPT, "hifigan_T2_v1"),
         "convnext140_bigvgan": (CONVNEXT_CKPT, "bigvgan_base_22khz_80band"),
         "convnext140_hifigan": (CONVNEXT_CKPT, "hifigan_T2_v1"),
+        "mamba139_bigvgan": (MAMBA_CKPT, "bigvgan_base_22khz_80band"),
+        "mamba139_hifigan": (MAMBA_CKPT, "hifigan_T2_v1"),
     }
 
     if only is None or "gt" in only:
