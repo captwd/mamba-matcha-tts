@@ -166,3 +166,7 @@ synth_output/
 # 评估产物：只保留逐句指标 CSV（评估音频与中间 npy 不入库）
 /results/**/*.wav
 /results/**/*.npy
+
+# 试听对比音频（体积较大，不入库；生成脚本见 wsl_env/）
+/test_audio/sway_steps/
+/test_audio/sway_steps_official/
