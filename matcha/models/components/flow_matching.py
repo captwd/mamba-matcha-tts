@@ -52,6 +52,10 @@ class BASECFM(torch.nn.Module, ABC):
             self.sigma_min = cfm_params.sigma_min  # 【中文说明】插值路径收缩系数（默认 1e-4，路径近似匀速直线）
         else:
             self.sigma_min = 1e-4
+        # 【中文说明】Sway Sampling 系数（推理时的非均匀时间轴重参数化，见 forward）：
+        #   None = 关闭（保持均匀时间步）；建议取值 [-1, 0]，F5-TTS 默认 -1.0。
+        #   旧 checkpoint 的配置里没有这个键，get 默认 None → 行为与改动前完全一致。
+        self.sway_sampling_coef = cfm_params.get("sway_sampling_coef", None)
 
         # 【中文说明】estimator 由子类 CFM.__init__ 实例化；基类先置 None 占位
         self.estimator = None
@@ -81,6 +85,13 @@ class BASECFM(torch.nn.Module, ABC):
         # ---------- Step 2: 等分时间轴 ----------
         # 【中文说明】t_span: [0, 1/n, 2/n, ..., 1]，共 n_timesteps+1 个点
         t_span = torch.linspace(0, 1, n_timesteps + 1, device=mu.device)
+        # ---------- Step 2b: Sway Sampling（可选） ----------
+        # 【中文说明】把均匀时间轴做一次非线性重参数化：t ← t + a·(cos(π t/2) − 1 + t)
+        #   端点不变（t=0→0，t=1→1）；a<0 时步长在噪声端（t≈0）更密 → 少步数合成质量更好。
+        #   来源：F5-TTS（arXiv 2410.06885）的 sway sampling，推理期技巧，不改变模型。
+        sway = getattr(self, "sway_sampling_coef", None)
+        if sway is not None:
+            t_span = t_span + sway * (torch.cos(torch.pi / 2 * t_span) - 1 + t_span)
         # ---------- Step 3: 沿流积分到 t=1 ----------
         return self.solve_euler(z, t_span=t_span, mu=mu, mask=mask, spks=spks, cond=cond)
 

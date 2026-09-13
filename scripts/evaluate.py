@@ -137,6 +137,10 @@ def main():
                         help="评估前先做声码器往返校准：GT mel -> 声码器 -> 重提 mel 的 MCD 下限（应接近几 dB）")
     parser.add_argument("--no_denoiser", action="store_true",
                         help="强制不使用去噪器（A/B 对照用；默认按注册表配方自动挂载）")
+    parser.add_argument("--sway_sampling_coef", type=float, default=None,
+                        help="Sway Sampling 系数（推理期非均匀时间步）：不给=关闭；建议 [-1, 0]，F5-TTS 默认 -1.0")
+    parser.add_argument("--seed", type=int, default=1234,
+                        help="每条语句的固定随机种子（保证不同配置间可逐句配对；0=不固定）")
     parser.add_argument("--cpu", action="store_true")
     args = parser.parse_args()
 
@@ -145,6 +149,11 @@ def main():
 
     # ---------- 加载模型与声码器（复用 cli.py 的逻辑） ----------
     model = load_matcha("custom_model", args.checkpoint_path, device)
+    # 【中文说明】覆盖 CFM 的 sway 系数（推理期技巧，不需要重训；None 时保持配置里的值）
+    if args.sway_sampling_coef is not None:
+        model.decoder.sway_sampling_coef = args.sway_sampling_coef
+    print(f"[!] sway_sampling_coef = {getattr(model.decoder, 'sway_sampling_coef', None)}"
+          f" | steps = {args.steps} | seed = {args.seed}")
     vocoder_path = resolve_vocoder_path(args.vocoder)
     vocoder, denoiser = load_vocoder(args.vocoder, vocoder_path, device)
     if args.no_denoiser:
@@ -191,6 +200,11 @@ def main():
             wav_path = data_root / wav_rel
             utt_id = Path(wav_rel).stem
             # ---------- 合成 ----------
+            # 【中文说明】固定每条语句的噪声种子：同一 utt 在不同配置（步数/sway）下用同一份起点噪声，
+            #   这样 MCD/WER 才能做逐句配对比较，而不是被采样随机性淹没。
+            if args.seed:
+                torch.manual_seed(args.seed + idx)
+                torch.cuda.manual_seed_all(args.seed + idx)
             processed = process_text(idx, text, device, (args.cleaner,))
             output = model.synthesise(
                 processed["x"],

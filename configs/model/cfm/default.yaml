@@ -1,3 +1,5 @@
 name: CFM
 solver: euler
 sigma_min: 1e-4
+# Sway Sampling（推理期非均匀时间步）：null=关闭；建议 [-1, 0]，F5-TTS 默认 -1.0
+sway_sampling_coef: null
