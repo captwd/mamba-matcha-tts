@@ -87,6 +87,6 @@
 | `matcha/models/components/flow_matching.py` | 修改 | `BASECFM.__init__` 读取 `sway_sampling_coef`（缺失默认 `None`）；`forward` 对 `t_span` 做 sway 重参数化 `t + a·(cos(πt/2) − 1 + t)`，端点不变；`None` 时与改动前行为完全一致 |
 | `configs/model/cfm/default.yaml` | 修改 | 新增 `sway_sampling_coef: null` |
 | `scripts/evaluate.py` | 修改 | 新增 `--sway_sampling_coef`（运行时覆盖 ckpt 配置）与 `--seed`（每条语句固定噪声种子，供逐句配对比较） |
-| `wsl_env/sway_grid.sh`、`sway_compare.py`、`sway_multi.sh`、`sway_multi_compare.py`、`inspect_ckpts.py` | 新增 | A/B 网格、配对检验、多模型通用性验证、checkpoint 训练量检查脚本 |
+| `wsl_env/sway_grid.sh`、`sway_compare.py`、`sway_multi.sh`、`sway_multi_compare.py`、`sway_curve.sh`、`sway_curve_compare.py`、`sway_curve_asr.sh`、`sway_1step_asr.sh`、`inspect_ckpts.py` | 新增 | A/B 网格、配对检验、多模型通用性验证、sway 系数 × 极低 NFE 曲线、WER 验证、checkpoint 训练量检查脚本 |
 
 来源：F5-TTS 的 Sway Sampling（arXiv 2410.06885）。属**推理期技巧**，不改变模型参数与训练目标，**不需要重训**；旧 checkpoint 可直接使用（配置缺键 → 默认关闭）。实测结论见 `docs/2026-09-12_summary.md`。
