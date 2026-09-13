@@ -297,3 +297,17 @@ Mamba 骨干迁移日（整体搬迁到 WSL2 Linux + 双向 Mamba2 全局混合�
 
 **详细记录见 [`2026-09-08_summary.md`](2026-09-08_summary.md)。**
 下一步：mamba 恒定 LR 对照 run（把调度因素彻底剥离）；analyze_drift.py 查 mamba 块 LayerScale gamma 漂移；demo 页加 mamba 试听列。
+
+---
+
+## 2026-09-12
+
+Sway Sampling 落地与多模型验证（推理期优化，**不重训**）：
+
+1. **实现**：`flow_matching.py` 的 `t_span` 加 sway 重参数化 `t + a·(cos(πt/2) − 1 + t)`（端点不变）；配置项 `sway_sampling_coef` 默认 `null`（旧 ckpt 行为不变）；`evaluate.py` 新增 `--sway_sampling_coef` 与 `--seed`（固定逐句噪声种子，保证配对可比）。
+2. **通用性实验**（val 100 句、HiFi-GAN T2 + Deno、seed 1234）：5 个模型（U-Net 基线 / ConvNeXt 恒定LR / ConvNeXt+衰减 / 双向 Mamba2 / 官方预训练）× 步数 {4,6,10} × sway {关, −1.0}，逐句配对 Wilcoxon。**MCD 全部显著改善（p<0.0001），Δ = −0.08 ~ −0.44 dB；步数越少收益越大**。
+3. **附带发现**：**4 步优于 10 步**，5 个模型全部成立（含官方预训练）。当前最优 = `4 步 + sway(−1.0)`：MCD 49.83 / WER 9.4%（ConvNeXt+衰减 ep134），优于原 10 步基线（50.89 / 10.6%），且推理快 2.5×。
+4. WER/CER 方向一致但不显著（p 0.15~0.74）——sway 的收益点在细节保真（MCD），不在可懂度。
+
+**详细记录见 [`2026-09-12_summary.md`](2026-09-12_summary.md)。**
+下一步：sway 系数扫描与 2/3 步极低 NFE 测试；若改用 4 步 + sway，需按新协议重评统一评估表；可选：训练侧 sway 采 t（需重训）。
