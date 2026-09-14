@@ -31,10 +31,9 @@ trainer:
 
 callbacks:
   model_checkpoint:
-    # 归档快照：每 50 epoch 存一个编号 ckpt，全保留（1200/50=24 个 × 258MB ≈ 6GB，
-    # 30GB 系统盘吃紧就改 save_top_k: 8 只留最近 8 个）
+    # 归档快照：每 50 epoch 存一个编号 ckpt，保留最近 8 个（跨度 400 epoch，8×258MB≈2GB）
     every_n_epochs: 50
-    save_top_k: -1
+    save_top_k: 8
     save_last: false   # 过期的 last 副本只会误导续训（新鲜的在 checkpoints_last/）
   resume_checkpoint:
     # 断点续训专用 last.ckpt：必须每 epoch 刷新。已知教训（callbacks/model_checkpoint.yaml
