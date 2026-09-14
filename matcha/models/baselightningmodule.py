@@ -94,20 +94,25 @@ class BaseLightningClass(LightningModule, ABC):
         x, x_lengths = batch["x"], batch["x_lengths"]
         y, y_lengths = batch["y"], batch["y_lengths"]
         spks = batch["spks"]
+        cond = batch.get("cond", None)
+        emo_label = batch.get("emo_label", None)
 
-        dur_loss, prior_loss, diff_loss, *_ = self(
+        dur_loss, prior_loss, diff_loss, _attn, emo_loss = self(
             x=x,
             x_lengths=x_lengths,
             y=y,
             y_lengths=y_lengths,
             spks=spks,
             out_size=self.out_size,
+            cond=cond,
             durations=batch["durations"],
+            emo_label=emo_label,
         )
         return {
             "dur_loss": dur_loss,
             "prior_loss": prior_loss,
             "diff_loss": diff_loss,
+            "emo_loss": getattr(self, "emo_aux_loss", 0.0) * emo_loss,
         }
 
     def on_load_checkpoint(self, checkpoint: Dict[str, Any]) -> None:
@@ -154,8 +159,17 @@ class BaseLightningClass(LightningModule, ABC):
             logger=True,
             sync_dist=True,
         )
+        if "emo_loss" in loss_dict:
+            self.log(
+                "sub_loss/train_emo_loss",
+                loss_dict["emo_loss"],
+                on_step=True,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+            )
 
-        # 【中文说明】总损失 = 三项直接相加（权重均为 1）；返回给 Lightning 负责反传
+        # 【中文说明】总损失 = 各项相加（emo_loss 已按 emo_aux_loss 加权）；返回给 Lightning 负责反传
         total_loss = sum(loss_dict.values())
         self.log(
             "loss/train",
@@ -200,8 +214,17 @@ class BaseLightningClass(LightningModule, ABC):
             logger=True,
             sync_dist=True,
         )
+        if "emo_loss" in loss_dict:
+            self.log(
+                "sub_loss/val_emo_loss",
+                loss_dict["emo_loss"],
+                on_step=True,
+                on_epoch=True,
+                logger=True,
+                sync_dist=True,
+            )
 
-        # 【中文说明】验证集总损失
+        # 【综合说明】验证集总损失
         total_loss = sum(loss_dict.values())
         self.log(
             "loss/val",

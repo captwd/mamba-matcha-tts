@@ -56,6 +56,10 @@ class TextMelDataModule(LightningDataModule):
         data_statistics,
         seed,
         load_durations,
+        emo_dim=0,
+        emo_feat_dir=None,
+        emo_label_path=None,
+        n_emotions=0,
     ):
         super().__init__()
 
@@ -86,6 +90,9 @@ class TextMelDataModule(LightningDataModule):
             self.hparams.data_statistics,
             self.hparams.seed,
             self.hparams.load_durations,
+            self.hparams.emo_dim,
+            self.hparams.emo_feat_dir,
+            self.hparams.emo_label_path,
         )
         self.validset = TextMelDataset(  # pylint: disable=attribute-defined-outside-init
             self.hparams.valid_filelist_path,
@@ -102,6 +109,9 @@ class TextMelDataModule(LightningDataModule):
             self.hparams.data_statistics,
             self.hparams.seed,
             self.hparams.load_durations,
+            self.hparams.emo_dim,
+            self.hparams.emo_feat_dir,
+            self.hparams.emo_label_path,
         )
 
     def train_dataloader(self):
@@ -169,6 +179,9 @@ class TextMelDataset(torch.utils.data.Dataset):
         data_parameters=None,
         seed=None,
         load_durations=False,
+        emo_dim=0,
+        emo_feat_dir=None,
+        emo_label_path=None,
     ):
         self.filepaths_and_text = parse_filelist(filelist_path)
         self.n_spks = n_spks
@@ -182,6 +195,13 @@ class TextMelDataset(torch.utils.data.Dataset):
         self.f_min = f_min
         self.f_max = f_max
         self.load_durations = load_durations
+        self.emo_dim = emo_dim
+        self.emo_feat_dir = Path(emo_feat_dir) if emo_feat_dir is not None else None
+        # 【中文说明】情感类别标签 {utt_id: 类别索引}，供辅助分类损失使用
+        self.emo_labels = {}
+        if emo_label_path is not None and Path(emo_label_path).exists():
+            with open(emo_label_path, encoding="utf-8") as f:
+                self.emo_labels = json.load(f)
 
         if data_parameters is not None:
             self.data_parameters = data_parameters
@@ -257,7 +277,32 @@ class TextMelDataset(torch.utils.data.Dataset):
 
         durations = self.get_durations(filepath, text) if self.load_durations else None
 
-        return {"x": text, "y": mel, "spk": spk, "filepath": filepath, "x_text": cleaned_text, "durations": durations}
+        cond = self.get_emo_cond(filepath)
+        emo_label = self.emo_labels.get(utt_id, 0)
+
+        return {
+            "x": text,
+            "y": mel,
+            "spk": spk,
+            "filepath": filepath,
+            "x_text": cleaned_text,
+            "durations": durations,
+            "cond": cond,
+            "emo_label": emo_label,
+        }
+
+    def get_emo_cond(self, filepath):
+        """【中文说明】读取句级情感向量 (emo_dim,)。
+        - emo_dim=0：返回 None，走原版流程
+        - emo_feat_dir 有 {utt_id}.npy：加载 emotion2vec 特征
+        - 否则：返回全零占位向量，仅用于跑通流程（占位）"""
+        if self.emo_dim <= 0:
+            return None
+        if self.emo_feat_dir is not None:
+            feat_path = self.emo_feat_dir / f"{Path(filepath).stem}.npy"
+            if feat_path.exists():
+                return torch.from_numpy(np.load(feat_path).astype(np.float32)).reshape(-1)
+        return torch.zeros(self.emo_dim, dtype=torch.float32)
 
     def get_durations(self, filepath, text):
         filepath = Path(filepath)
@@ -329,6 +374,8 @@ class TextMelBatchCollate:
 
         y_lengths, x_lengths = [], []
         spks = []
+        conds = []
+        emo_labels = []
         filepaths, x_texts = [], []
         for i, item in enumerate(batch):
             y_, x_ = item["y"], item["x"]
@@ -337,6 +384,8 @@ class TextMelBatchCollate:
             y[i, :, : y_.shape[-1]] = y_
             x[i, : x_.shape[-1]] = x_
             spks.append(item["spk"])
+            conds.append(item["cond"])
+            emo_labels.append(item["emo_label"])
             filepaths.append(item["filepath"])
             x_texts.append(item["x_text"])
             if item["durations"] is not None:
@@ -345,6 +394,8 @@ class TextMelBatchCollate:
         y_lengths = torch.tensor(y_lengths, dtype=torch.long)
         x_lengths = torch.tensor(x_lengths, dtype=torch.long)
         spks = torch.tensor(spks, dtype=torch.long) if self.n_spks > 1 else None
+        cond = torch.stack(conds) if conds[0] is not None else None
+        emo_label = torch.tensor(emo_labels, dtype=torch.long)
 
         return {
             "x": x,
@@ -352,6 +403,8 @@ class TextMelBatchCollate:
             "y": y,
             "y_lengths": y_lengths,
             "spks": spks,
+            "cond": cond,
+            "emo_label": emo_label,
             "filepaths": filepaths,
             "x_texts": x_texts,
             "durations": durations if not torch.eq(durations, 0).all() else None,

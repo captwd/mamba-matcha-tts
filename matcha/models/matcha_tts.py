@@ -27,6 +27,7 @@ import math
 import random
 
 import torch
+import torch.nn.functional as F
 
 import matcha.utils.monotonic_align as monotonic_align  # pylint: disable=consider-using-from-import
 from matcha import utils
@@ -68,6 +69,12 @@ class MatchaTTS(BaseLightningClass):  # 🍵
         scheduler=None,     # 【中文说明】学习率调度器配置
         prior_loss=True,    # 【中文说明】是否计算先验损失（论文中的 L_prior，通常开启）
         use_precomputed_durations=False,  # 【中文说明】True 时跳过 MAS，直接用外部提供的时长（FastSpeech 风格）
+        emo_dim=0,          # 【中文说明】emotion2vec 句级特征维度；0=禁用情感条件（原版行为）
+        emo_emb_dim=64,     # 【中文说明】情感向量投影后注入 decoder 的维度
+        emo_cond_dropout=0.1,  # 【中文说明】训练时随机丢弃情感条件的概率（推理期 CFG 用）
+        emo_aux_loss=0.0,   # 【中文说明】情感辅助分类损失的权重；0=不启用
+        n_emotions=0,       # 【中文说明】情感类别数（ESD=5，RAVDESS=8）
+        emo_cls_hidden=256, # 【中文说明】辅助分类器隐藏通道数
     ):
         super().__init__()
 
@@ -83,6 +90,32 @@ class MatchaTTS(BaseLightningClass):  # 🍵
         self.out_size = out_size
         self.prior_loss = prior_loss
         self.use_precomputed_durations = use_precomputed_durations
+        self.emo_dim = emo_dim
+        self.emo_emb_dim = emo_emb_dim
+        self.emo_cond_dropout = emo_cond_dropout
+        self.emo_aux_loss = emo_aux_loss
+
+        # ---------- 情感辅助分类器（防止忽略情感条件） ----------
+        # 【中文说明】接在预测梅尔 x1_hat 上做情感分类，用真实标签算 CE；
+        # 权重 emo_aux_loss>0 且 n_emotions>0 时启用。
+        if emo_aux_loss > 0 and n_emotions > 0:
+            from matcha.models.components.emotion import EmotionClassifier
+
+            self.emo_classifier = EmotionClassifier(n_feats, emo_cls_hidden, n_emotions)
+        else:
+            self.emo_classifier = None
+
+        # ---------- 情感条件投影（句级向量） ----------
+        # 【中文说明】把外部情感特征 (B, emo_dim) 投影成 (B, emo_emb_dim)，
+        # 与 spks 一样在 decoder 输入端沿通道拼接。emo_dim=0 时不建层（向后兼容）。
+        if emo_dim > 0:
+            self.emo_proj = torch.nn.Sequential(
+                torch.nn.Linear(emo_dim, emo_emb_dim),
+                torch.nn.Mish(),
+                torch.nn.Linear(emo_emb_dim, emo_emb_dim),
+            )
+        else:
+            self.emo_proj = None
 
         # ---------- 说话人嵌入（仅多说话人模型） ----------
         # 【中文说明】说话人 ID -> 向量 (spk_emb_dim)。单说话人模型没有这一层，
@@ -114,6 +147,7 @@ class MatchaTTS(BaseLightningClass):  # 🍵
             decoder_params=decoder,
             n_spks=n_spks,
             spk_emb_dim=spk_emb_dim,
+            emo_emb_dim=emo_emb_dim if emo_dim > 0 else 0,
         )
 
         # ---------- 数据统计量 ----------
@@ -123,8 +157,22 @@ class MatchaTTS(BaseLightningClass):  # 🍵
         #   3) .to(device) 时自动跟着模型走
         self.update_data_statistics(data_statistics)
 
+    def _project_emo(self, cond, batch_size, device):
+        """【中文说明】把情感条件投影到 emo_emb_dim；cond=None 时用全零（中性）占位。
+        训练时按 emo_cond_dropout 随机置零，供推理期 classifier-free guidance 使用。"""
+        if self.emo_proj is None:
+            return None
+        if cond is None:
+            cond = torch.zeros(batch_size, self.emo_dim, device=device, dtype=torch.float32)
+        cond = cond.to(device).float()
+        emo = self.emo_proj(cond)
+        if self.training and self.emo_cond_dropout > 0:
+            drop = (torch.rand(batch_size, 1, device=device) < self.emo_cond_dropout).to(emo.dtype)
+            emo = emo * (1 - drop)
+        return emo
+
     @torch.inference_mode()
-    def synthesise(self, x, x_lengths, n_timesteps, temperature=1.0, spks=None, length_scale=1.0):
+    def synthesise(self, x, x_lengths, n_timesteps, temperature=1.0, spks=None, length_scale=1.0, cond=None, emo_scale=None):
         """
         Generates mel-spectrogram from text. Returns:
             1. encoder outputs
@@ -168,6 +216,10 @@ class MatchaTTS(BaseLightningClass):  # 🍵
             # Get speaker embedding
             spks = self.spk_emb(spks.long())
 
+        # ---------- Step 1b: 情感条件投影 ----------
+        # 【中文说明】cond: (B, emo_dim) 外部情感特征；未提供时用全零占位
+        emo = self._project_emo(cond, x.shape[0], x.device)
+
         # ---------- Step 2: 文本编码 ----------
         # Get encoder_outputs `mu_x` and log-scaled token durations `logw`
         # 【中文说明】mu_x: (B, 80, T_text) 每音素条件向量；logw: (B,1,T_text) 对数时长预测；
@@ -206,7 +258,14 @@ class MatchaTTS(BaseLightningClass):  # 🍵
         # Generate sample tracing the probability flow
         # 【中文说明】从纯噪声出发，沿学到的速度场积分 n_timesteps 步，得到归一化梅尔频谱。
         #   内部即 flow_matching.solve_euler()；默认 10 步即可出声，这是 Matcha 快的核心。
-        decoder_outputs = self.decoder(mu_y, y_mask, n_timesteps, temperature, spks)
+        #   emo_scale 非空且启用情感时，用 classifier-free guidance 放大情感条件：
+        #       v = v_uncond + emo_scale * (v_cond - v_uncond)
+        if emo is not None and emo_scale is not None and emo_scale != 1.0:
+            out_cond = self.decoder(mu_y, y_mask, n_timesteps, temperature, spks, emo)
+            out_uncond = self.decoder(mu_y, y_mask, n_timesteps, temperature, spks, torch.zeros_like(emo))
+            decoder_outputs = out_uncond + emo_scale * (out_cond - out_uncond)
+        else:
+            decoder_outputs = self.decoder(mu_y, y_mask, n_timesteps, temperature, spks, emo)
         decoder_outputs = decoder_outputs[:, :, :y_max_length]
 
         # ---------- Step 7: 统计 RTF ----------
@@ -230,7 +289,7 @@ class MatchaTTS(BaseLightningClass):  # 🍵
             "rtf": rtf,
         }
 
-    def forward(self, x, x_lengths, y, y_lengths, spks=None, out_size=None, cond=None, durations=None):
+    def forward(self, x, x_lengths, y, y_lengths, spks=None, out_size=None, cond=None, durations=None, emo_label=None):
         """
         Computes 3 losses:
             1. duration loss: loss between predicted token durations and those extracted by Monotonic Alignment Search (MAS).
@@ -255,6 +314,9 @@ class MatchaTTS(BaseLightningClass):  # 🍵
         if self.n_spks > 1:
             # Get speaker embedding
             spks = self.spk_emb(spks)
+
+        # ---------- Step 1b: 情感条件投影（含条件 dropout，供 CFG） ----------
+        emo = self._project_emo(cond, x.shape[0], x.device)
 
         # ---------- Step 2: 文本编码 ----------
         # Get encoder_outputs `mu_x` and log-scaled token durations `logw`
@@ -345,7 +407,17 @@ class MatchaTTS(BaseLightningClass):  # 🍵
         # Compute loss of the decoder
         # 【中文说明】进入 CFM：内部随机采时间步 t、构造插值样本 y_t，让 estimator 预测速度场 u，
         #   以 MSE 求差。详见 flow_matching.compute_loss()；返回的第二个值是插值样本（调试用，这里丢弃）
-        diff_loss, _ = self.decoder.compute_loss(x1=y, mask=y_mask, mu=mu_y, spks=spks, cond=cond)
+        #   启用情感辅助损失时，额外取回预测干净梅尔 x1_hat 做情感分类。
+        use_aux = self.emo_classifier is not None and emo_label is not None
+        if use_aux:
+            diff_loss, _, state = self.decoder.compute_loss(
+                x1=y, mask=y_mask, mu=mu_y, spks=spks, cond=emo, return_state=True
+            )
+            logits = self.emo_classifier(state["x1_hat"], y_mask)
+            emo_loss = F.cross_entropy(logits, emo_label.long())
+        else:
+            diff_loss, _ = self.decoder.compute_loss(x1=y, mask=y_mask, mu=mu_y, spks=spks, cond=emo)
+            emo_loss = torch.zeros((), device=y.device)
 
         # ---------- Step 9: 先验损失（可选） ----------
         # 【中文说明】鼓励 CFM 的条件 mu_y 本身就接近真实梅尔（高斯负对数似然），
@@ -357,5 +429,6 @@ class MatchaTTS(BaseLightningClass):  # 🍵
         else:
             prior_loss = 0
 
-        # 【中文说明】三项损失由 baselightningmodule.get_losses() 求和反传；attn 供可视化
-        return dur_loss, prior_loss, diff_loss, attn
+        # 【中文说明】损由 baselightningmodule.get_losses() 按权重求和反传；attn 供可视化；
+        #   emo_loss 为情感辅助分类损失（未加权，权重在 get_losses 里乘 emo_aux_loss）
+        return dur_loss, prior_loss, diff_loss, attn, emo_loss

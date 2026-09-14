@@ -566,6 +566,11 @@ class Decoder(nn.Module):
             spks = repeat(spks, "b c -> b c t", t=x.shape[-1])
             x = pack([x, spks], "b * t")[0]
 
+        # 【中文说明】情感条件（句级向量）与 spks 同样处理：沿时间复制后通道拼接
+        if cond is not None:
+            cond = repeat(cond, "b c -> b c t", t=x.shape[-1])
+            x = pack([x, cond], "b * t")[0]
+
         # ---------- Step 3: 下采样段 ----------
         # 【中文说明】masks 列表保存各级分辨率的掩码，up 段按相反顺序弹出使用（对称结构）。
         #   每级流程：Resnet(+时间嵌入) -> 转置成 (B,T,C) 过 Transformer 块（mask 同步转置）

@@ -1,0 +1,31 @@
+_target_: matcha.data.text_mel_datamodule.TextMelDataModule
+name: ravdess
+train_filelist_path: data/RAVDESS/train.txt
+valid_filelist_path: data/RAVDESS/val.txt
+batch_size: 32
+num_workers: 4
+pin_memory: True
+cleaners: [english_cleaners2]
+add_blank: True
+n_spks: 24
+n_fft: 1024
+n_feats: 80
+sample_rate: 22050
+hop_length: 256
+win_length: 1024
+f_min: 0
+f_max: 8000
+# 由 python matcha/utils/generate_data_statistics.py -i ravdess.yaml 计算得到
+data_statistics:
+  mel_mean: -8.639276504516602
+  mel_std: 2.6696810722351074
+seed: ${seed}
+load_durations: false
+# 情感条件：emo_dim 必须与 model.emo_dim 一致；emo_feat_dir 放 {utt_id}.npy 的 emotion2vec 句级向量
+# 注意：此处写死数值而非 ${model.emo_dim}，因为 generate_data_statistics.py 会单独加载本文件（无 model 组）
+# emotion2vec_base 句级维度为 768；训练时请同时设置 model.emo_dim=768
+emo_dim: 768
+emo_feat_dir: data/RAVDESS/emo_feat
+# 情感辅助分类：类别数与标签文件
+n_emotions: 8
+emo_label_path: data/RAVDESS/emo_labels.json

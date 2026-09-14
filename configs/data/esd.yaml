@@ -1,0 +1,29 @@
+_target_: matcha.data.text_mel_datamodule.TextMelDataModule
+name: esd
+train_filelist_path: data/ESD/train.txt
+valid_filelist_path: data/ESD/val.txt
+batch_size: 32
+num_workers: 4
+pin_memory: True
+cleaners: [english_cleaners2]
+add_blank: True
+n_spks: 10   # 英文说话人 0011-0020
+n_fft: 1024
+n_feats: 80
+sample_rate: 22050
+hop_length: 256
+win_length: 1024
+f_min: 0
+f_max: 8000
+# 由 python matcha/utils/generate_data_statistics.py -i esd.yaml 计算得到
+data_statistics:
+  mel_mean: -6.734538555145264
+  mel_std: 2.444223403930664
+seed: ${seed}
+load_durations: false
+# 情感条件：emo_dim 必须与 model.emo_dim 一致；emotion2vec_base 句级维度 768
+emo_dim: 768
+emo_feat_dir: data/ESD/emo_feat
+# 情感辅助分类：类别数与标签文件
+n_emotions: 5
+emo_label_path: data/ESD/emo_labels.json

@@ -15,3 +15,14 @@ data_statistics: ${data.data_statistics}
 out_size: null # Must be divisible by 4
 prior_loss: true
 use_precomputed_durations: ${data.load_durations}
+
+# 情感条件（句级向量，通道拼接注入 decoder）
+# emo_dim=0 时完全关闭，行为与原版 Matcha 一致（向后兼容）
+emo_dim: 0            # emotion2vec 句级特征维度（如 base 为 768）；0=禁用
+emo_emb_dim: 64       # 投影后注入 decoder 的维度
+emo_cond_dropout: 0.1 # 训练时随机置零情感条件的概率，用于推理期 CFG
+
+# 情感辅助分类损失（防止模型忽略情感条件）：emo_aux_loss>0 时启用
+emo_aux_loss: 0.0     # 权重，建议 0.1~0.5；0=关闭
+n_emotions: ${data.n_emotions}
+emo_cls_hidden: 256   # 分类器隐藏通道

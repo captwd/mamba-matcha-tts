@@ -133,7 +133,7 @@ class BASECFM(torch.nn.Module, ABC):
 
         return sol[-1]
 
-    def compute_loss(self, x1, mask, mu, spks=None, cond=None):
+    def compute_loss(self, x1, mask, mu, spks=None, cond=None, return_state=False):
         """Computes diffusion loss
 
         Args:
@@ -172,9 +172,15 @@ class BASECFM(torch.nn.Module, ABC):
         # 【中文说明】estimator 输入：(插值样本 y, 掩码 mask, 条件 mu, 时间步 t, 说话人 spks)；
         #   reduction="sum" 后按"有效帧数 × 通道数"归一化，使损失量纲与序列长度、batch 大小无关；
         #   返回 (loss, y)：y 是插值样本，供上层调试/可视化用（通常忽略）
-        loss = F.mse_loss(self.estimator(y, mask, mu, t.squeeze(), spks), u, reduction="sum") / (
+        v = self.estimator(y, mask, mu, t.squeeze(), spks, cond)
+        loss = F.mse_loss(v, u, reduction="sum") / (
             torch.sum(mask) * u.shape[1]
         )
+        if return_state:
+            # 【中文说明】由估计速度反推"预测的干净梅尔" x1_hat = y_t + (1-t)·v
+            #   （线性路径下 σ_min 很小，近似等于 x1），供情感辅助分类损失使用。
+            x1_hat = y + (1 - t) * v
+            return loss, y, {"x1_hat": x1_hat, "t": t}
         return loss, y
 
 
@@ -185,7 +191,7 @@ class CFM(BASECFM):
       只需要改这里（或改成按 decoder_params.name 从注册表选择）。
     """
 
-    def __init__(self, in_channels, out_channel, cfm_params, decoder_params, n_spks=1, spk_emb_dim=64):
+    def __init__(self, in_channels, out_channel, cfm_params, decoder_params, n_spks=1, spk_emb_dim=64, emo_emb_dim=0):
         super().__init__(
             n_feats=in_channels,
             cfm_params=cfm_params,
@@ -196,7 +202,8 @@ class CFM(BASECFM):
         # 【中文说明】多说话人时，输入通道在 (2*80) 基础上再拼一个说话人嵌入维度：
         #   单说话人: in_channels = 160  →  [x_t(80) | mu_y(80)]
         #   多说话人: in_channels = 160 + spk_emb_dim → [x_t | mu_y | spk（时间维复制后拼接）]
-        in_channels = in_channels + (spk_emb_dim if n_spks > 1 else 0)
+        #   启用情感时再拼一个 emo_emb_dim 维：+ emo_emb_dim
+        in_channels = in_channels + (spk_emb_dim if n_spks > 1 else 0) + emo_emb_dim
         # Just change the architecture of the estimator here
         # 【中文说明】★ 唯一实例化点。estimator 的接口契约（换骨干为 Mamba 等时必须保持一致）：
         #   调用签名  estimator(x, mask, mu, t, spks, cond)
