@@ -1,0 +1,30 @@
+# 【中文说明】ESD 情感模型续训的 LR 衰减配置（配合 experiment=esd_emo_finetune 使用）
+#
+# 设计：
+#   从全局 ep127（本地已完成的主训练 last.ckpt）续训到全局 ep177，共 50 epoch。
+#   仓库的 configure_optimizers 在恢复 checkpoint 时会把 scheduler.last_epoch 设为
+#   恢复 epoch-1（=126），因此里程碑必须写在"全局 epoch 轴"上：
+#       全局 ep127~139: 1e-4     （13 epoch，先让恒定 LR 的震荡段收尾）
+#       全局 ep140~154: 5e-5
+#       全局 ep155~166: 2.5e-5
+#       全局 ep167~174: 1.25e-5
+#       全局 ep175~177: 6.25e-6  （与 LJSpeech 衰减实验的终点 LR 一致）
+#   gamma=0.5，四档衰减，约每 12~15 epoch 减半——即 09-07 已在 LJSpeech 上验证
+#   过剂量-反应关系的 multistep_late 同款节奏，只是里程碑平移到了 ep127 起点之后。
+#
+# 兼容性：
+#   若不带 ckpt_path 从头训（max_epochs=177），同一份里程碑同样成立
+#   （ep140 前恒定 1e-4，之后阶梯衰减），无需改配置。
+#
+# 教训（09-07）：里程碑写成局部 epoch 会因计数器从恢复点起跳而静默失效；
+# 必须用全局 epoch 轴。恢复训练后建议抽查 ckpt 内 lr 验证调度生效。
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.MultiStepLR
+  _partial_: true
+  milestones: [140, 155, 167, 175]
+  gamma: 0.5
+
+lightning_args:
+  interval: epoch
+  frequency: 1

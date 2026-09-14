@@ -1,0 +1,40 @@
+# @package _global_
+
+# ESD 情感模型续训（服务器训练入口）
+# =====================================================================
+# 场景 A（推荐）：从本地已完成 127 epoch 的 last.ckpt 续训 50 epoch，带 LR 衰减
+#   1. 把本地 logs/train/esd_emo/runs/2026-09-14_10-11-20/checkpoints/last.ckpt
+#      传到服务器，例如 /data/ckpts/esd_emo_ep127_last.ckpt
+#   2. python matcha/train.py experiment=esd_emo_finetune \
+#          ckpt_path=/data/ckpts/esd_emo_ep127_last.ckpt
+#
+# 场景 B：从头训 177 epoch（同一份衰减里程碑自动成立）
+#   python matcha/train.py experiment=esd_emo_finetune
+#
+# 续训原理：模型用本配置重新实例化（scheduler 生效），再由 ckpt_path 恢复权重
+# 和优化器动量；MultiStepLR.last_epoch 由 configure_optimizers 续接到全局轴。
+
+defaults:
+  - override /data: esd.yaml
+  - override /model/scheduler: multistep_emo_finetune.yaml
+
+tags: ["esd", "emotion"]
+run_name: esd_emo_finetune
+
+model:
+  # 情感条件（与 ep127 主训练完全一致，保证权重可恢复）
+  emo_dim: 768
+  emo_emb_dim: 64
+  emo_cond_dropout: 0.1
+  emo_aux_loss: 0.2
+
+trainer:
+  max_epochs: 177   # 场景 A：从 127 续 50 epoch；场景 B：从头 177
+
+callbacks:
+  model_checkpoint:
+    # every_n_epochs 必须为 1：新版 Lightning 里 last.ckpt（断点续训用）只在
+    # 当轮存过编号 checkpoint 时才更新。磁盘由 save_top_k=3 兜底：
+    # 3 个编号 ckpt + last.ckpt ≈ 4×258MB ≈ 1GB，不会爆盘
+    every_n_epochs: 1
+    save_top_k: 3
