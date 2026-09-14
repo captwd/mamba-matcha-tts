@@ -34,7 +34,9 @@ trainer:
 callbacks:
   model_checkpoint:
     # every_n_epochs 必须为 1：新版 Lightning 里 last.ckpt（断点续训用）只在
-    # 当轮存过编号 checkpoint 时才更新。磁盘由 save_top_k=3 兜底：
+    # 当轮存过编号 checkpoint 时才写入。磁盘由 save_top_k=3 兜底：
     # 3 个编号 ckpt + last.ckpt ≈ 4×258MB ≈ 1GB，不会爆盘
     every_n_epochs: 1
     save_top_k: 3
+
+test: false   # 模型类无 test_step，默认 test:true 会在训练结束后崩掉（不影响权重）

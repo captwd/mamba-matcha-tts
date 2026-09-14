@@ -29,6 +29,8 @@ model:
 trainer:
   max_epochs: 1200
 
+test: false   # 模型类无 test_step，默认 test:true 会在训练结束后崩掉（不影响权重）
+
 callbacks:
   model_checkpoint:
     # 归档快照：每 50 epoch 存一个编号 ckpt，保留最近 8 个（跨度 400 epoch，8×258MB≈2GB）
