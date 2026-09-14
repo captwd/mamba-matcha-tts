@@ -38,12 +38,15 @@ callbacks:
     save_top_k: 8
     save_last: false   # 过期的 last 副本只会误导续训（新鲜的在 checkpoints_last/）
   resume_checkpoint:
-    # 断点续训专用 last.ckpt：必须每 epoch 刷新。已知教训（callbacks/model_checkpoint.yaml
-    # 内注释）：新版 Lightning 里 last.ckpt 只在"当轮存过编号 ckpt"时才写，若只依赖上面的
-    # 归档回调（every_n_epochs=50），宕机时续训点最多落后 49 epoch。
-    # 放在独立目录 checkpoints_last/，与归档目录互不干扰
+    # 断点续训专用：每 epoch 存编号 ckpt（top_k=1 只留最新）+ last.ckpt。
+    # 教训（09-14）：save_top_k=0 + save_last 的组合在 Lightning 2.6.6 上不落盘——
+    # last.ckpt 只在"当轮存过编号 checkpoint"时才写入（仓库已知行为），必须 top_k>=1
     _target_: lightning.pytorch.callbacks.ModelCheckpoint
     dirpath: ${paths.output_dir}/checkpoints_last
-    save_top_k: 0
+    filename: ckpt_{epoch:03d}
+    monitor: epoch
+    mode: max
+    auto_insert_metric_name: false
+    save_top_k: 1
     save_last: true
     every_n_epochs: 1
