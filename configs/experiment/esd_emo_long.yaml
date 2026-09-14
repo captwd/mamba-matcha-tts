@@ -1,0 +1,38 @@
+# @package _global_
+
+# ESD 情感模型长程训练（~1200 epoch，对齐官方 500k updates 量级）
+# =====================================================================
+# 推荐用法：从本地 ep127 last.ckpt 直接进入长跑（避免衰减后再回跳）
+#   python matcha/train.py experiment=esd_emo_long \
+#          ckpt_path=/data/ckpts/esd_emo_ep127_last.ckpt
+#
+# 也支持从头训：python matcha/train.py experiment=esd_emo_long
+# （同一份里程碑 [600,900,1050,1150] 写在全局轴，从哪开始都成立）
+#
+# 时间预算：519 步/epoch × 1200 ≈ 62 万步。按本地 3.7 min/epoch 约 74 小时；
+# 服务器 GPU 更快则按比例缩短。中断后用同一命令 + 新 run 的 last.ckpt 续跑。
+
+defaults:
+  - override /data: esd.yaml
+  - override /model/scheduler: multistep_long.yaml
+
+tags: ["esd", "emotion", "long"]
+run_name: esd_emo_long
+
+model:
+  # 情感条件（与 ep127 主训练完全一致，保证权重可恢复）
+  emo_dim: 768
+  emo_emb_dim: 64
+  emo_cond_dropout: 0.1
+  emo_aux_loss: 0.2
+
+trainer:
+  max_epochs: 1200
+
+callbacks:
+  model_checkpoint:
+    # every_n_epochs 必须为 1：last.ckpt（断点续训用）只在当轮存过编号 ckpt 时才更新；
+    # 磁盘由 save_top_k=3 兜底（3 编号 + last ≈ 1GB）。长跑中想多留历史样本
+    # 可临时调大 save_top_k，或周期性把编号 ckpt 拷走归档
+    every_n_epochs: 1
+    save_top_k: 3

@@ -47,8 +47,8 @@ tar -xzf esd_emo_transfer.tar.gz
 
 ```bash
 # 3.1 配置可组合（含 ljspeech 回归修复、衰减调度器）
-python matcha/train.py --cfg job experiment=esd_emo_finetune | grep -E "emo_dim|milestones|max_epochs"
-#    期望看到 emo_dim: 768 / milestones: [140, 155, 167, 175] / max_epochs: 177
+python matcha/train.py --cfg job experiment=esd_emo_long | grep -E "emo_dim|milestones|max_epochs"
+#    期望看到 emo_dim: 768 / milestones: [600, 900, 1050, 1150] / max_epochs: 1200
 
 # 3.2 一个 epoch 的试跑（确认数据加载 / 特征 / 标签全通）
 python matcha/train.py experiment=esd_emo_finetune \
@@ -57,13 +57,16 @@ python matcha/train.py experiment=esd_emo_finetune \
 #    跑起来 1~2 个 epoch 后 Ctrl+C，检查 logs/train/esd_emo_finetune/runs/<ts>/train.log
 ```
 
-## 4. 正式续训（tmux 里跑）
+## 4. 正式训练（tmux 里跑）
+
+**主路径：长跑 1200 epoch**（62 万步，超过官方 500k updates 量级；按本地 3.7 min/epoch
+约 74 小时，服务器 GPU 按比例缩短）：
 
 ```bash
 tmux new -s emo
 conda activate matcha
 cd Matcha-TTS
-python matcha/train.py experiment=esd_emo_finetune \
+python matcha/train.py experiment=esd_emo_long \
     ckpt_path=/data/ckpts/esd_emo_ep127_last.ckpt \
     data.num_workers=8 2>&1 | tee train_emo.log
 # Ctrl+B, D 脱离；tmux attach -t emo 回来
@@ -71,14 +74,26 @@ python matcha/train.py experiment=esd_emo_finetune \
 
 要点：
 
-- **LR 衰减已配置好**：`model/scheduler=multistep_emo_finetune`，里程碑写在全局 epoch 轴
-  `[140, 155, 167, 175]`、gamma 0.5，即 ep140→5e-5、ep155→2.5e-5、ep167→1.25e-5、ep175→6.25e-6，
-  跑到 ep177 停（从 127 续 50 epoch）。恢复后抽查 ckpt 内 lr 确认调度生效（09-07 的教训）
+- **LR 衰减已配置好**：`model/scheduler=multistep_long`，里程碑写在全局 epoch 轴
+  `[600, 900, 1050, 1150]`、gamma 0.5：前 600 epoch 恒定 1e-4，之后 5e-5 → 2.5e-5 →
+  1.25e-5 → 6.25e-6（终点 LR 与 LJSpeech 衰减配方一致）。从 ep127 续训则实际
+  还要跑 1073 epoch。恢复后抽查 ckpt 内 lr 确认调度生效（09-07 的教训）
 - **checkpoint 策略**：每 epoch 存编号 ckpt 但 `save_top_k=3` + `last.ckpt`，磁盘占用 ≈ 1GB；
   中断后用同一个命令重跑（`ckpt_path` 指向新 run 的 last.ckpt）即断点续训
 - 多卡：加 `trainer.devices=2`（官方即 2 卡 batch 32 训练）
-- 监控：`tensorboard --logdir logs/train/esd_emo_finetune --port 6006`，
-  关注 `val_mcd/mean`（应从 ~60 下探并走平，不再大幅震荡）与 `sub_loss/val_emo_loss`（应维持 ~0.05）
+- 监控：`tensorboard --logdir logs/train/esd_emo_long --port 6006`，
+  关注 `val_mcd/mean`（长恒定段允许震荡，ep600 衰减后应下探并走平）
+  与 `sub_loss/val_emo_loss`（应维持 ~0.05）
+
+**备选：先来个 50 epoch 快赢**（不进 tmux 长跑，先快速验证衰减收益、出可听版本）：
+
+```bash
+python matcha/train.py experiment=esd_emo_finetune \
+    ckpt_path=/data/ckpts/esd_emo_ep127_last.ckpt   # ep127 -> ep177，衰减 [140,155,167,175]
+```
+
+注意：跑完这个再进 `esd_emo_long` 会从 6.25e-6 回跳 1e-4（warm restart，通常无害
+但要有预期）。要长跑就直接用上面的主路径，二选一。
 
 ## 5. 情感推理（训练完就能听）
 

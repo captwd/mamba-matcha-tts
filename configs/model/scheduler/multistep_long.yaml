@@ -1,0 +1,31 @@
+# 【中文说明】长程训练（~1200 epoch）的 LR 衰减配置（配合 experiment=esd_emo_long）
+#
+# 设计（预算比例制，而不是绝对 epoch 拍脑袋）：
+#   总预算 1200 epoch（1200 × 519 步 ≈ 62 万步，超过官方 500k updates 的训练量）。
+#   恒定 1e-4 走完前 50%，后 50% 阶梯衰减、越接近尾声衰减越密
+#   （节奏与 09-07 验证过的 multistep_late 同构，只是按 1200 等比放大）：
+#       全局 ep1~599:     1e-4     （长恒定段，让模型把"能学的"学完）
+#       全局 ep600~899:   5e-5     （半预算处第一次减半）
+#       全局 ep900~1049:  2.5e-5
+#       全局 ep1050~1149: 1.25e-5
+#       全局 ep1150~1200: 6.25e-6 （最后 50 epoch 用终点 LR 收敛平整）
+#   终点 LR 与 LJSpeech 衰减实验一致（6.25e-6）。
+#
+# 全局轴的好处：无论从 ep127（本地主训练）、ep177（+50 续训）还是从头开始，
+# 同一份里程碑都成立——configure_optimizers 会把 last_epoch 续接到恢复点。
+#
+# 注意（LR 回跳）：若从"已经衰减到 6.25e-6 的 +50 续训 ckpt"接着跑本配置，
+# 学习率会跳回 1e-4（16 倍回升）。要么直接从 ep127 一步进入长跑（推荐），
+# 要么接受这次 warm restart（优化器动量保留，通常无害但要心里有数）。
+#
+# 教训（09-07）：里程碑必须写在全局 epoch 轴上；恢复后抽查 ckpt 内 lr 确认生效。
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.MultiStepLR
+  _partial_: true
+  milestones: [600, 900, 1050, 1150]
+  gamma: 0.5
+
+lightning_args:
+  interval: epoch
+  frequency: 1
