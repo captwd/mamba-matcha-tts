@@ -31,8 +31,18 @@ trainer:
 
 callbacks:
   model_checkpoint:
-    # every_n_epochs 必须为 1：last.ckpt（断点续训用）只在当轮存过编号 ckpt 时才更新；
-    # 磁盘由 save_top_k=3 兜底（3 编号 + last ≈ 1GB）。长跑中想多留历史样本
-    # 可临时调大 save_top_k，或周期性把编号 ckpt 拷走归档
+    # 归档快照：每 50 epoch 存一个编号 ckpt，全保留（1200/50=24 个 × 258MB ≈ 6GB，
+    # 30GB 系统盘吃紧就改 save_top_k: 8 只留最近 8 个）
+    every_n_epochs: 50
+    save_top_k: -1
+    save_last: false   # 过期的 last 副本只会误导续训（新鲜的在 checkpoints_last/）
+  resume_checkpoint:
+    # 断点续训专用 last.ckpt：必须每 epoch 刷新。已知教训（callbacks/model_checkpoint.yaml
+    # 内注释）：新版 Lightning 里 last.ckpt 只在"当轮存过编号 ckpt"时才写，若只依赖上面的
+    # 归档回调（every_n_epochs=50），宕机时续训点最多落后 49 epoch。
+    # 放在独立目录 checkpoints_last/，与归档目录互不干扰
+    _target_: lightning.pytorch.callbacks.ModelCheckpoint
+    dirpath: ${paths.output_dir}/checkpoints_last
+    save_top_k: 0
+    save_last: true
     every_n_epochs: 1
-    save_top_k: 3

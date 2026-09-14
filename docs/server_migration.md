@@ -78,8 +78,10 @@ python matcha/train.py experiment=esd_emo_long \
   `[600, 900, 1050, 1150]`、gamma 0.5：前 600 epoch 恒定 1e-4，之后 5e-5 → 2.5e-5 →
   1.25e-5 → 6.25e-6（终点 LR 与 LJSpeech 衰减配方一致）。从 ep127 续训则实际
   还要跑 1073 epoch。恢复后抽查 ckpt 内 lr 确认调度生效（09-07 的教训）
-- **checkpoint 策略**：每 epoch 存编号 ckpt 但 `save_top_k=3` + `last.ckpt`，磁盘占用 ≈ 1GB；
-  中断后用同一个命令重跑（`ckpt_path` 指向新 run 的 last.ckpt）即断点续训
+- **checkpoint 策略**（双回调）：`checkpoints/` 里每 50 epoch 存一个归档编号 ckpt
+  （全程 24 个 ≈ 6GB，`save_top_k: -1` 全保留）；`checkpoints_last/last.ckpt` 每 epoch
+  刷新专供断点续训。中断后重跑同一命令、`ckpt_path` 指向新 run 的
+  `checkpoints_last/last.ckpt` 即可（epoch 计数与调度器自动续接）
 - 多卡：加 `trainer.devices=2`（官方即 2 卡 batch 32 训练）
 - 监控：`tensorboard --logdir logs/train/esd_emo_long --port 6006`，
   关注 `val_mcd/mean`（长恒定段允许震荡，ep600 衰减后应下探并走平）
