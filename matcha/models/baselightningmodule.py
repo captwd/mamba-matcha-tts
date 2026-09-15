@@ -238,13 +238,17 @@ class BaseLightningClass(LightningModule, ABC):
 
         return total_loss
 
-    def on_validation_end(self) -> None:
-        """【中文说明】验证结束后往 tensorboard 写"看得见"的图（只在主进程做一次）。
+    def on_validation_epoch_end(self) -> None:
+        """【中文说明】验证 epoch 结束时往 tensorboard 写"看得见"的图（只在主进程做一次）。
 
         epoch 0：额外记录两条真实梅尔（original/），方便与生成结果对照；
         每个 epoch：取验证集第一条样本，用当前模型 synthesise 10 步 ODE，
         记录 编码器梅尔 / 解码器梅尔 / 对齐矩阵 三张图——
         训练时观察"对齐是否学起来、梅尔是否清晰"主要就看这里。
+
+        【09-15 修正】原为 on_validation_end + add_scalar 裸写 tensorboard——
+        指标进不了 callback_metrics，EarlyStopping/ModelCheckpoint 盯不到。
+        改为 on_validation_epoch_end + self.log 正式注册指标。
         """
         if self.trainer.is_global_zero:
             one_batch = next(iter(self.trainer.val_dataloaders))
@@ -303,10 +307,10 @@ class BaseLightningClass(LightningModule, ABC):
                     # 【中文说明】MCD 失败不应中断训练（如某样本过短），记录警告并跳过
                     log.warning(f"MCD computation failed for sample {i}: {e}")
             if mcd_values:
-                # 【中文说明】两条样本的均值；tensorboard 里看 val_mcd/mean 曲线，越低越好
-                self.logger.experiment.add_scalar(
-                    "val_mcd/mean", sum(mcd_values) / len(mcd_values), self.current_epoch
-                )
+                mean_mcd = sum(mcd_values) / len(mcd_values)
+                # 【中文说明】两条样本的均值，用 self.log 正式注册进 Lightning 指标体系——
+                #   这样 EarlyStopping / ModelCheckpoint 才能盯它（裸写 add_scalar 进不了 callback_metrics）
+                self.log("val_mcd/mean", mean_mcd, on_step=False, on_epoch=True, sync_dist=True)
 
     def on_before_optimizer_step(self, optimizer):
         """【中文说明】优化器步进前记录各参数组的 2-范数梯度——监控训练稳定性（梯度爆炸/消失）。
