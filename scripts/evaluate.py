@@ -109,12 +109,12 @@ def load_gt_mel(wav_path, mel_params):
 
 
 def parse_filelist_line(line):
-    """【中文说明】兼容 "wav|text" 与 "wav|text|normalized_text" 两种行格式（取最后一列文本）"""
+    """【中文说明】兼容 "wav|text" 与 "wav|spk|text" 两种行格式；多说话人时取中间的 spk 列"""
     parts = [p.strip() for p in line.strip().split("|")]
     if len(parts) >= 3:
-        return parts[0], parts[2]
+        return parts[0], int(parts[1]), parts[2]
     if len(parts) == 2:
-        return parts[0], parts[1]
+        return parts[0], None, parts[1]
     raise ValueError(f"Bad filelist line: {line!r}")
 
 
@@ -141,6 +141,10 @@ def main():
                         help="Sway Sampling 系数（推理期非均匀时间步）：不给=关闭；建议 [-1, 0]，F5-TTS 默认 -1.0")
     parser.add_argument("--seed", type=int, default=1234,
                         help="每条语句的固定随机种子（保证不同配置间可逐句配对；0=不固定）")
+    parser.add_argument("--emo_feat_dir", type=str, default=None,
+                        help="情感特征目录 {utt_id}.npy；ckpt 带情感条件时传入=情感匹配评估（不传=零向量条件）")
+    parser.add_argument("--emo_scale", type=float, default=1.0,
+                        help="情感 CFG 强度（配合 --emo_feat_dir；1.0=纯条件生成）")
     parser.add_argument("--cpu", action="store_true")
     args = parser.parse_args()
 
@@ -196,7 +200,7 @@ def main():
 
         for idx, line in enumerate(lines):
             t0 = dt.datetime.now()
-            wav_rel, text = parse_filelist_line(line)
+            wav_rel, spk_id, text = parse_filelist_line(line)
             wav_path = data_root / wav_rel
             utt_id = Path(wav_rel).stem
             # ---------- 合成 ----------
@@ -206,12 +210,24 @@ def main():
                 torch.manual_seed(args.seed + idx)
                 torch.cuda.manual_seed_all(args.seed + idx)
             processed = process_text(idx, text, device, (args.cleaner,))
+            # 【中文说明】情感条件（ckpt 带 emo_dim 时可选）：用该句自己的 emotion2vec 向量
+            #   做"情感匹配"合成，MCD 才不受情感错配影响；多说话人模型同时传 filelist 里的 spk。
+            cond, spks = None, None
+            if args.emo_feat_dir is not None:
+                _feat = Path(args.emo_feat_dir) / f"{utt_id}.npy"
+                if _feat.exists():
+                    cond = torch.from_numpy(np.load(_feat).astype(np.float32).reshape(-1))[None].to(device)
+            if getattr(model.hparams, "n_spks", 1) > 1:
+                spks = torch.tensor([spk_id if spk_id is not None else 0], dtype=torch.long, device=device)
             output = model.synthesise(
                 processed["x"],
                 processed["x_lengths"],
                 n_timesteps=args.steps,
                 temperature=args.temperature,
+                spks=spks,
                 length_scale=args.speaking_rate,
+                cond=cond,
+                emo_scale=args.emo_scale if cond is not None else None,
             )
             gen_mel = output["mel"][0][:, : output["mel_lengths"][0]].cpu()  # (80, T_gen) 对数域
             waveform = to_waveform(output["mel"], vocoder, denoiser).cpu()
