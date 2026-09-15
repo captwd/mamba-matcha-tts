@@ -264,6 +264,11 @@
         <td class="l">ASR 听写真实音频的错误率</td>
       </tr>
       <tr>
+        <td class="l">官方预训练（参考系）</td>
+        <td><b>7.3%</b></td><td><b>1.8%</b></td><td>7.6%</td><td><b>26.25</b></td>
+        <td class="l">官方 LJSpeech ckpt 同协议直推（10 步、无 sway）；2 步 + sway 可到 24.58 / 7.0%。50 万步单说话人训练，作为"量级参照"而非可比对手</td>
+      </tr>
+      <tr>
         <td class="l">本复现 140ep + BigVGAN</td>
         <td><b>9.2%</b></td><td><b>2.6%</b></td><td>7.6%</td><td>52.9 ± 17.1</td>
         <td class="l">比上限高 1.6 个点，其余错误来自 ASR 本身</td>
