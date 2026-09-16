@@ -1,0 +1,18 @@
+#!/bin/bash
+# v3 长跑配置：从 ep1199 续训到全局 ep2000，LR 阶梯衰减
+#   全局 ep1199~1499:  3e-5
+#   全局 ep1500~1699:  1.5e-5
+#   全局 ep1700~1849:  7.5e-6
+#   全局 ep1850~1949:  3.75e-6
+#   全局 ep1950~2000:  1.875e-6
+# 里程碑写在全局 epoch 轴上（configure_optimizers 会续接 last_epoch）。
+
+scheduler:
+  _target_: torch.optim.lr_scheduler.MultiStepLR
+  _partial_: true
+  milestones: [1500, 1700, 1850, 1950]
+  gamma: 0.5
+
+lightning_args:
+  interval: epoch
+  frequency: 1

@@ -1,16 +1,17 @@
 # @package _global_
 
-# ESD 情感模型 v3：从 v1 的 ep1199 继续训练，LR 调大
+# ESD 情感模型 v3：从 v1 的 ep1199 继续训练到全局 ep2000，LR 阶梯衰减
 # =====================================================================
 # 起点：esd_emo_long 的 checkpoint_epoch=1199.ckpt（v1 收在 lr 6.25e-6）
-# 本配置把 lr 提到 3e-5 恒定，监控/早停沿用 v2 的修正（盯 val_mcd）。
+# 本配置：lr 提到 3e-5，multistep_2000 衰减，全程 ~800 轮（约 15 小时）。
+# 不挂 EarlyStopping：目标就是训到 ep2000；质量由 best-2 checkpoint 兜底。
 #
 # 用法：python matcha/train.py experiment=esd_emo_v3 \
 #           ckpt_path=/root/Matcha-TTS/logs/train/esd_emo_long/runs/2026-09-14_23-41-59/checkpoints/checkpoint_epoch=1199.ckpt
 
 defaults:
   - override /data: esd.yaml
-  # scheduler 保持默认 null：恒定 lr
+  - override /model/scheduler: multistep_2000.yaml
 
 tags: ["esd", "emotion", "v3"]
 run_name: esd_emo_v3
@@ -24,7 +25,7 @@ model:
     lr: 3.0e-5   # 从 6.25e-6 的终点"稍微调大"
 
 trainer:
-  max_epochs: 300
+  max_epochs: 2000
 
 callbacks:
   model_checkpoint:
@@ -45,12 +46,5 @@ callbacks:
     save_top_k: 1
     save_last: true
     every_n_epochs: 1
-  early_stopping:
-    _target_: lightning.pytorch.callbacks.EarlyStopping
-    monitor: val_mcd/mean
-    mode: min
-    patience: 80
-    min_delta: 0.0
-    verbose: true
 
 test: false
