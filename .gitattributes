@@ -1,0 +1,3 @@
+# 统一换行符为 LF:仓库、工作区、git archive 导出的 zip 全部 LF
+# (Dockerfile 的 \ 续行符和 shell 脚本最怕 CRLF)
+* text=auto eol=lf

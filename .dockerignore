@@ -1,0 +1,20 @@
+# 大文件与本地产物一律不进镜像
+.git
+data
+logs
+results
+models
+outputs
+demo
+docs
+notebooks
+__pycache__
+*.pyc
+*.pt
+*.ckpt
+*.npz
+*.wav
+id_rsa
+matcha_tts.egg-info
+Dockerfile
+.dockerignore

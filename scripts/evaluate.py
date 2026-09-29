@@ -139,6 +139,9 @@ def main():
                         help="强制不使用去噪器（A/B 对照用；默认按注册表配方自动挂载）")
     parser.add_argument("--sway_sampling_coef", type=float, default=None,
                         help="Sway Sampling 系数（推理期非均匀时间步）：不给=关闭；建议 [-1, 0]，F5-TTS 默认 -1.0")
+    parser.add_argument("--sampling_method", type=str, default=None, choices=["euler", "ab2"],
+                        help="推理侧求解器：euler=一阶（默认）| ab2=二阶 Adams-Bashforth（用上一步速度外推，"
+                             "变步长系数兼容 sway）。不给=保持 checkpoint 配置里的值；不需要重训")
     parser.add_argument("--seed", type=int, default=1234,
                         help="每条语句的固定随机种子（保证不同配置间可逐句配对；0=不固定）")
     parser.add_argument("--emo_feat_dir", type=str, default=None,
@@ -156,7 +159,11 @@ def main():
     # 【中文说明】覆盖 CFM 的 sway 系数（推理期技巧，不需要重训；None 时保持配置里的值）
     if args.sway_sampling_coef is not None:
         model.decoder.sway_sampling_coef = args.sway_sampling_coef
+    # 【中文说明】覆盖 CFM 的采样方法（推理侧求解器，不需要重训；None 时保持配置里的值）
+    if args.sampling_method is not None:
+        model.decoder.sampling_method = args.sampling_method
     print(f"[!] sway_sampling_coef = {getattr(model.decoder, 'sway_sampling_coef', None)}"
+          f" | sampling_method = {getattr(model.decoder, 'sampling_method', 'euler')}"
           f" | steps = {args.steps} | seed = {args.seed}")
     vocoder_path = resolve_vocoder_path(args.vocoder)
     vocoder, denoiser = load_vocoder(args.vocoder, vocoder_path, device)

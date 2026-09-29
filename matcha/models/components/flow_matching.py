@@ -57,6 +57,16 @@ class BASECFM(torch.nn.Module, ABC):
         #   旧 checkpoint 的配置里没有这个键，get 默认 None → 行为与改动前完全一致。
         self.sway_sampling_coef = cfm_params.get("sway_sampling_coef", None)
 
+        # 【中文说明】采样方法（euler / ab2）：求解器属于推理侧流程、与模型权重无关，切换不需要重训。
+        #   euler —— 一阶，每步只用当前一次速度求值（默认，行为与改动前一致）；
+        #   ab2   —— 二阶 Adams-Bashforth 两步法：额外利用上一步的速度求值做线性外推，
+        #            全局积分精度从 O(dt) 提到 O(dt²)。实现采用**变步长系数**（由相邻网格
+        #            间距现场算出），因此与 sway 的非均匀网格天然兼容。
+        #   关键认识：场是无记忆的，"历史"属于积分器——AB2 只改"怎么组合历史求值"，
+        #   不改"怎么问模型"，所以 DiT 一个字都不用动。
+        #   旧 checkpoint 的配置里没有这个键，get 默认 euler → 行为与改动前完全一致。
+        self.sampling_method = cfm_params.get("sampling_method", "euler")
+
         # 【中文说明】estimator 由子类 CFM.__init__ 实例化；基类先置 None 占位
         self.estimator = None
 
@@ -97,7 +107,7 @@ class BASECFM(torch.nn.Module, ABC):
 
     def solve_euler(self, x, t_span, mu, mask, spks, cond):
         """
-        Fixed euler solver for ODEs.
+        ODE solver loop (Euler by default; optional second-order AB2 via sampling_method).
         Args:
             x (torch.Tensor): random noise
             t_span (torch.Tensor): n_timesteps interpolated
@@ -110,26 +120,43 @@ class BASECFM(torch.nn.Module, ABC):
                 shape: (batch_size, spk_emb_dim)
             cond: Not used but kept for future purposes
         """
-        # 【中文说明】初始化：t=0，步长 dt = 1/n_timesteps（等分时间轴）
-        t, _, dt = t_span[0], t_span[-1], t_span[1] - t_span[0]
-
-        # I am storing this because I can later plot it by putting a debugger here and saving it to a file
-        # Or in future might add like a return_all_steps flag
         # 【中文说明】sol 保存每一步积分后的 x_t；想可视化 ODE 轨迹可在此循环里收集/断点
         sol = []
+        prev_v = None    # 【中文说明】上一步的速度求值（AB2 的"历史"）；第一步没有历史，退化为 Euler
+        prev_t = None    # 【中文说明】上一步的评估时刻（用来算上一步步长 g）
 
-        # ---------- Euler 积分主循环 ----------
-        # 【中文说明】每步：向 estimator 问当前时刻速度 -> x += dt * v -> t 前进一格。
-        #   共 n_timesteps 次 estimator 前向，是推理时的主要计算量；
-        #   Matcha 的卖点：10 步即可出高质量结果（对比扩散模型动辄几十上百步）
+        # ---------- 积分主循环 ----------
+        # 【中文说明】每步：向 estimator 问当前 (x, t) 处的速度 -> 按 sampling_method 组合出更新量。
+        #   共 n_timesteps 次 estimator 前向（NFE），是推理时的主要计算量；
+        #   Matcha 的卖点：10 步即可出高质量结果（对比扩散模型动辄几十上百步）。
+        #   注意：estimator 的调用方式在两种方法下完全一致——AB2 只改"怎么组合"，不改"怎么问"。
         for step in range(1, len(t_span)):
-            dphi_dt = self.estimator(x, mask, mu, t, spks, cond)
+            t_cur, t_next = t_span[step - 1], t_span[step]
+            dt = t_next - t_cur
 
-            x = x + dt * dphi_dt
-            t = t + dt
+            dphi_dt = self.estimator(x, mask, mu, t_cur, spks, cond)
+
+            if self.sampling_method == "ab2" and prev_v is not None and prev_t is not None:
+                # 【中文说明】变步长 Adams-Bashforth 二阶：
+                #   对历史两点 (prev_t, prev_v)、(t_cur, dphi_dt) 做线性插值多项式，
+                #   在 [t_cur, t_next] 上解析积分，得更新量：
+                #       x += dt·(1 + dt/(2g))·f_cur − dt²/(2g)·f_prev，   g = t_cur − prev_t
+                #   等步长（g = dt）时退化为经典系数 x += dt·(3/2·f_cur − 1/2·f_prev)。
+                #   变步长系数与 sway 的非均匀网格天然兼容（g 按网格现场计算）。
+                #   直觉提醒：f_prev 的系数是**负**的——这不是"平均/平滑"历史速度，
+                #   而是用两点的差放大场的变化趋势（外推），二阶精度正来自这个差。
+                g = t_cur - prev_t
+                if g > 0:
+                    x = x + dt * ((1.0 + dt / (2.0 * g)) * dphi_dt - (dt / (2.0 * g)) * prev_v)
+                else:
+                    # 【中文说明】网格退化（相邻点重合）时保守回退 Euler，避免除零
+                    x = x + dt * dphi_dt
+            else:
+                x = x + dt * dphi_dt
+
+            prev_v = dphi_dt
+            prev_t = t_cur
             sol.append(x)
-            if step < len(t_span) - 1:
-                dt = t_span[step + 1] - t
 
         return sol[-1]
 

@@ -1,5 +1,10 @@
 name: CFM
 solver: euler
 sigma_min: 1e-4
+# 采样方法（推理侧求解器，与权重无关，切换不需要重训）：
+#   euler —— 一阶，默认，行为与改动前一致
+#   ab2   —— 二阶 Adams-Bashforth 两步法：用上一步的速度做线性外推，
+#            变步长系数，兼容 sway 非均匀网格；第一步无历史自动退化为 Euler
+sampling_method: euler
 # Sway Sampling（推理期非均匀时间步）：null=关闭；建议 [-1, 0]，F5-TTS 默认 -1.0
 sway_sampling_coef: null
